@@ -20,6 +20,22 @@ names and default units and formatting.
 
 Customized Configuration
 
+This uploader supports two different formats for the influx line protocol.
+The first form is multi-line:
+
+name0[tags] value=x ts
+name1[tags] value=y ts
+name2[tags] value=z ts
+...
+
+The second form is single-line:
+
+record[tags] name0=x,name1=y,name2=z ts
+
+[StdRESTful]
+    [[Influx]]
+        line_format = multi-line # options are multi-line or single-line
+
 When an input map is specified, only variables in that map will be uploaded.
 The 'units' parameter can be used to specify which units should be used for
 the input, independent of the local weewx units.
@@ -63,7 +79,7 @@ import weewx.restx
 import weewx.units
 from weeutil.weeutil import to_bool, accumulateLeaves
 
-VERSION = "0.1"
+VERSION = "0.2"
 
 REQUIRED_WEEWX = "3.5.0"
 if StrictVersion(weewx.__version__) < StrictVersion(REQUIRED_WEEWX):
@@ -140,6 +156,10 @@ class Influx(weewx.restx.StdRESTbase):
         tags: name-value pairs to identify the measurement
         Default is None
 
+        line_format: which line protocol format to use.  Possible values are
+        single-line or multi-line.
+        Default is single-line
+
         append_units_label: should units label be appended to name
         Default is True
 
@@ -172,6 +192,7 @@ class Influx(weewx.restx.StdRESTbase):
         site_dict.setdefault('username', None)
         site_dict.setdefault('password', '')
         site_dict.setdefault('tags', None)
+        site_dict.setdefault('line_format', 'single-line')
         site_dict.setdefault('obs_to_upload', 'all')
         site_dict.setdefault('append_units_label', True)
         site_dict.setdefault('augment_record', True)
@@ -223,7 +244,7 @@ class InfluxThread(weewx.restx.RESTThread):
     _DEFAULT_SERVER_URL = 'http://localhost:8086'
 
     def __init__(self, queue, database,
-                 username=None, password=None,
+                 username=None, password=None, line_format='single-line',
                  tags=None, unit_system=None, augment_record=True,
                  inputs=dict(), obs_to_upload='all', append_units_label=True,
                  server_url=_DEFAULT_SERVER_URL, skip_upload=False,
@@ -254,6 +275,7 @@ class InfluxThread(weewx.restx.RESTThread):
         self.unit_system = unit_system
         self.augment_record = augment_record
         self.templates = dict()
+        self.line_format = line_format
 
         # ensure that the database exists
         qstr = urllib.urlencode({'q': 'CREATE DATABASE %s' % self.database})
@@ -281,7 +303,7 @@ class InfluxThread(weewx.restx.RESTThread):
             logdbg('data: %s' % data)
         if self.skip_upload:
             raise AbortedPost()
-        req = urllib2.Request(url, '\n'.join(data))
+        req = urllib2.Request(url, data)
         req.add_header("User-Agent", "weewx/%s" % weewx.__version__)
         if self.username is not None:
             b64s = base64.encodestring(
@@ -334,8 +356,7 @@ class InfluxThread(weewx.restx.RESTThread):
                                                   record['usUnits'])
 
         # loop through the templates, populating them with data from the
-        # record.  append to the array in the influx line protocol for each
-        # observation.
+        # record.
         data = []
         for k in self.templates:
             try:
@@ -349,12 +370,19 @@ class InfluxThread(weewx.restx.RESTThread):
                     from_t = (v, from_unit, from_group)
                     v = weewx.units.convert(from_t, to_units)[0]
                 s = fmt % v
-                data.append('%s%s value=%s %d' %
-                            (name, tags, s, record['dateTime']*1000000))
+                if self.line_format == 'multi-line':
+                    # use multiple lines
+                    data.append('%s%s value=%s %d' %
+                                (name, tags, s, record['dateTime']*1000000))
+                else:
+                    # use a single line
+                    data.append('%s=%s' % (name, s))
             except (TypeError, ValueError):
                 pass
-        return data
-
+        if self.line_format == 'multi-line':
+            return '\n'.join(data)
+        return 'record%s %s %d' % (
+            tags, ','.join(data), record['dateTime']*1000000000)
 
 # Use this hook to test the uploader:
 #   PYTHONPATH=bin python bin/user/influx.py
