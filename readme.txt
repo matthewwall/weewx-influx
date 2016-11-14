@@ -24,6 +24,15 @@ sudo /etc/init.d/weewx start
 ===============================================================================
 Configuration
 
+A minimal configuration requires only a host and database.
+
+Use host and port, or server_url to specify the influx server.
+
+A username and password are required if authentication is enabled on the
+influx server.
+
+Here is a complete enumeration of options.  Specify only those that you need.
+
 [StdRESTful]
     [[Influx]]
         database = DATABASE
@@ -39,14 +48,15 @@ Configuration
         augment_record = (True | False)            # default is true
         unit_system = (US | METRIC | METRICWX)     # default is database system
         [[[inputs]]]                               # optional
-            [[[[observation]]]]
+            [[[[observation1]]]]
+                units = degree_F                   # optional for each obs
+                name = label                       # optional for each obs
+                format = %.2f                      # optional for each obs
+            [[[[observation2]]]]
                 units = degree_F                   # optional for each obs
                 name = label                       # optional for each obs
                 format = %.2f                      # optional for each obs
 
-A database name is required.  A host+port or server_url will also probably need
-to be specified.  A username and password are required if authentication is
-enabled on the influx server.
 
 ===============================================================================
 Line formats
