@@ -1,7 +1,8 @@
 influx - weewx extension that sends data to an influx data server
 Copyright 2016 Matthew Wall
 
-Installation instructions:
+===============================================================================
+Installation
 
 1) run the installer:
 
@@ -18,3 +19,84 @@ wee_extension --install weewx-influx.tgz
 
 sudo /etc/init.d/weewx stop
 sudo /etc/init.d/weewx start
+
+
+===============================================================================
+Configuration
+
+[StdRESTful]
+    [[Influx]]
+        database = DATABASE
+        port = 8086
+        host = example.com                         # specify host OR server_url
+        server_url = https://example.com:443       # specify server_url OR host
+        username = USERNAME
+        password = PASSWORD
+        tags = station=A,field=C                   # optional
+        line_format = (multi-line | single-line)   # default is single-line
+        obs_to_upload = (all | none)               # default is all
+        append_units_label = (True | False)        # default is true
+        augment_record = (True | False)            # default is true
+        unit_system = (US | METRIC | METRICWX)     # default is database system
+        [[[inputs]]]                               # optional
+            [[[[observation]]]]
+                units = degree_F                   # optional for each obs
+                name = label                       # optional for each obs
+                format = %.2f                      # optional for each obs
+
+A database name is required.  A host+port or server_url will also probably need
+to be specified.  A username and password are required if authentication is
+enabled on the influx server.
+
+===============================================================================
+Line formats
+
+Influx defines two line formats, multi-line and single-line.
+
+The first form is multi-line:
+
+name0[tags] value=x ts
+name1[tags] value=y ts
+name2[tags] value=z ts
+...
+
+The second form is single-line:
+
+record[tags] name0=x,name1=y,name2=z ts
+
+[StdRESTful]
+    [[Influx]]
+        line_format = multi-line # options are multi-line or single-line
+
+
+===============================================================================
+Input map
+
+When an input map is specified, only variables in that map will be uploaded.
+The 'units' parameter can be used to specify which units should be used for
+the input, independent of the local weewx units.
+
+[StdRESTful]
+    [[Influx]]
+        database = DATABASE
+        server = localhost
+        port = 8086
+        tags = station=A
+        [[[inputs]]]
+            [[[[barometer]]]]
+                units = inHg
+                name = barometer_inHg
+                format = %.3f
+            [[[[outTemp]]]]
+                units = degree_F
+                name = outTemp_F
+                format = %.1f
+            [[[[outHumidity]]]]
+                name = outHumidity
+                format = %03.0f
+            [[[[windSpeed]]]]
+                units = mph
+                name = windSpeed_mph
+                format = %.2f
+            [[[[windDir]]]]
+                format = %03.0f
