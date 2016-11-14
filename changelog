@@ -1,3 +1,6 @@
+0.3 14nov2016
+* added ssl context to ignore certificates from servers on https connections
+
 0.2 10aug2016
 * try two different formats for the line protocol: multi or single
 

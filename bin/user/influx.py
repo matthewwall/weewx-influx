@@ -79,7 +79,7 @@ import weewx.restx
 import weewx.units
 from weeutil.weeutil import to_bool, accumulateLeaves
 
-VERSION = "0.2"
+VERSION = "0.3"
 
 REQUIRED_WEEWX = "3.5.0"
 if StrictVersion(weewx.__version__) < StrictVersion(REQUIRED_WEEWX):
@@ -330,6 +330,31 @@ class InfluxThread(weewx.restx.RESTThread):
                 if payload.find("database not found") >= 0:
                     raise weewx.restx.AbortedPost(payload)
         super(InfluxThread, self).handle_exception(e, count)
+
+    def post_request(self, request, payload=None):
+        # FIXME: provide full set of ssl options instead of this hack
+        if self.server_url.startswith('https'):
+            import ssl
+            return urllib.urlopen(request, data=payload, timeout=self.timeout,
+                                  context=ssl._create_unverified_context())
+        return urllib2.urlopen(request, data=payload, timeout=self.timeout)
+
+    def post_request(self, request, payload=None):  # @UnusedVariable
+        """Version of post_request() for the WOW protocol, which
+        uses a response error code to signal a bad login."""
+        try:
+            try:
+                _response = urllib2.urlopen(request, timeout=self.timeout)
+            except TypeError:
+                _response = urllib2.urlopen(request)
+        except urllib2.HTTPError, e:
+            # WOW signals a bad login with a HTML Error 400 or 403 code:
+            if e.code == 400 or e.code == 403:
+                raise BadLogin(e)
+            else:
+                raise
+        else:
+            return _response
 
     def get_data(self, record):
         tags = ''
