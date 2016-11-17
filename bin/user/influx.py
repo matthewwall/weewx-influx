@@ -335,8 +335,8 @@ class InfluxThread(weewx.restx.RESTThread):
         # FIXME: provide full set of ssl options instead of this hack
         if self.server_url.startswith('https'):
             import ssl
-            return urllib.urlopen(request, data=payload, timeout=self.timeout,
-                                  context=ssl._create_unverified_context())
+            return urllib2.urlopen(request, data=payload, timeout=self.timeout,
+                                   context=ssl._create_unverified_context())
         return urllib2.urlopen(request, data=payload, timeout=self.timeout)
 
     def post_request(self, request, payload=None):  # @UnusedVariable
