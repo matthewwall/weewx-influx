@@ -1,5 +1,6 @@
 influx - weewx extension that sends data to an influx data server
-Copyright 2016 Matthew Wall
+Copyright 2016-2017 Matthew Wall
+Distributed under terms of the GPLv3
 
 ===============================================================================
 Installation

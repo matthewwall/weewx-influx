@@ -1,5 +1,5 @@
-# $Id: influx.py 1483 2016-04-25 06:53:19Z mwall $
 # Copyright 2016 Matthew Wall
+# Distributed under the terms of the GNU Public License (GPLv3)
 
 """
 Influx is a platform for collecting, storing, and managing time-series data.

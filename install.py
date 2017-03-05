@@ -1,6 +1,6 @@
-# $Id: install.py 1481 2016-04-18 09:45:28Z mwall $
 # installer for influx
 # Copyright 2016 Matthew Wall
+# Distributed under the terms of the GNU Public License (GPLv3)
 
 from setup import ExtensionInstaller
 
