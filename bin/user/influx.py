@@ -43,7 +43,7 @@ the input, independent of the local weewx units.
 [StdRESTful]
     [[Influx]]
         database = DATABASE
-        server = localhost
+        host = localhost
         port = 8086
         tags = station=A
         [[[inputs]]]
@@ -140,7 +140,7 @@ class Influx(weewx.restx.StdRESTbase):
 
         Required parameters:
 
-        database: name of the databas at the server
+        database: name of the database at the server
 
         Optional parameters:
 
