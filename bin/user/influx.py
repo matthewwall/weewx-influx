@@ -348,9 +348,9 @@ class InfluxThread(weewx.restx.RESTThread):
             except TypeError:
                 _response = urllib2.urlopen(request)
         except urllib2.HTTPError, e:
-            # WOW signals a bad login with a HTML Error 400 or 403 code:
+            # HTML Error 400 or 403 code means bad login:
             if e.code == 400 or e.code == 403:
-                raise BadLogin(e)
+                raise weewx.restx.BadLogin(e)
             else:
                 raise
         else:
