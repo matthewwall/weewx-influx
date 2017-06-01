@@ -79,7 +79,7 @@ import weewx.restx
 import weewx.units
 from weeutil.weeutil import to_bool, accumulateLeaves
 
-VERSION = "0.3"
+VERSION = "0.5"
 
 REQUIRED_WEEWX = "3.5.0"
 if StrictVersion(weewx.__version__) < StrictVersion(REQUIRED_WEEWX):
@@ -340,19 +340,14 @@ class InfluxThread(weewx.restx.RESTThread):
         return urllib2.urlopen(request, data=payload, timeout=self.timeout)
 
     def post_request(self, request, payload=None):  # @UnusedVariable
-        """Version of post_request() for the WOW protocol, which
-        uses a response error code to signal a bad login."""
         try:
             try:
                 _response = urllib2.urlopen(request, timeout=self.timeout)
             except TypeError:
                 _response = urllib2.urlopen(request)
         except urllib2.HTTPError, e:
-            # HTML Error 400 or 403 code means bad login:
-            if e.code == 400 or e.code == 403:
-                raise weewx.restx.BadLogin(e)
-            else:
-                raise
+            logerr("post failed: %s" % e)
+            raise weewx.restx.FailedPost(e)
         else:
             return _response
 
