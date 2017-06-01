@@ -339,17 +339,17 @@ class InfluxThread(weewx.restx.RESTThread):
                                    context=ssl._create_unverified_context())
         return urllib2.urlopen(request, data=payload, timeout=self.timeout)
 
-    def post_request(self, request, payload=None):  # @UnusedVariable
-        try:
-            try:
-                _response = urllib2.urlopen(request, timeout=self.timeout)
-            except TypeError:
-                _response = urllib2.urlopen(request)
-        except urllib2.HTTPError, e:
-            logerr("post failed: %s" % e)
-            raise weewx.restx.FailedPost(e)
-        else:
-            return _response
+#    def post_request(self, request, payload=None):  # @UnusedVariable
+#        try:
+#            try:
+#                _response = urllib2.urlopen(request, timeout=self.timeout)
+#            except TypeError:
+#                _response = urllib2.urlopen(request)
+#        except urllib2.HTTPError, e:
+#            logerr("post failed: %s" % e)
+#            raise weewx.restx.FailedPost(e)
+#        else:
+#            return _response
 
     def get_data(self, record):
         tags = ''
