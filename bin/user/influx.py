@@ -8,6 +8,15 @@ http://influxdata.com
 
 This is a weewx extension that uploads data to an Influx server.
 
+Database Configuration and Access
+
+When it starts up, this extension will attempt to create the influx database.
+If credentials for a database administrator were provided, it will use those
+credentials.  Otherwise, it will use the username/password credentials.
+
+All other access to the influx database uses the username/password credentials
+(non database administrator), if provided.
+
 Minimal Configuration
 
 A database name is required.  All weewx variables will be uploaded using weewx
@@ -79,7 +88,7 @@ import weewx.restx
 import weewx.units
 from weeutil.weeutil import to_bool, accumulateLeaves
 
-VERSION = "0.5"
+VERSION = "0.6"
 
 REQUIRED_WEEWX = "3.5.0"
 if StrictVersion(weewx.__version__) < StrictVersion(REQUIRED_WEEWX):
@@ -191,6 +200,8 @@ class Influx(weewx.restx.StdRESTbase):
         site_dict.pop('port', None)
         site_dict.setdefault('username', None)
         site_dict.setdefault('password', '')
+        site_dict.setdefault('dbadmin_username', None)
+        site_dict.setdefault('dbadmin_password', '')
         site_dict.setdefault('tags', None)
         site_dict.setdefault('line_format', 'single-line')
         site_dict.setdefault('obs_to_upload', 'all')
@@ -282,14 +293,22 @@ class InfluxThread(weewx.restx.RESTThread):
         url = '%s/query?%s' % (self.server_url, qstr)
         req = urllib2.Request(url)
         req.add_header("User-Agent", "weewx/%s" % weewx.__version__)
-        if self.username is not None:
+        uname = None
+        pword = None
+        if dbadmin_username is not None:
+            uname = dbadmin_username
+            pword = dbadmin_password
+        elif username is not None:
+            uname = username
+            pword = password
+        if un is not None:
             b64s = base64.encodestring(
-                '%s:%s' % (self.username, self.password)).replace('\n', '')
+                '%s:%s' % (uname, pword)).replace('\n', '')
             req.add_header("Authorization", "Basic %s" % b64s)
         try:
             self.post_with_retries(req)
         except (weewx.restx.FailedPost, weewx.restx.AbortedPost), e:
-            raise weewx.ViolatedPrecondition(e)
+            logerr("create database failed: %s" % e)
 
     def process_record(self, record, dbm):
         if self.augment_record and dbm:

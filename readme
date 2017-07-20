@@ -32,6 +32,10 @@ Use host and port, or server_url to specify the influx server.
 A username and password are required if authentication is enabled on the
 influx server.
 
+When it starts up, this extension will attempt to create the influx database.
+If credentials for a database administrator were provided, it will use those
+credentials.  Otherwise, it will use the username/password credentials.
+
 Here is a complete enumeration of options.  Specify only those that you need.
 
 [StdRESTful]
@@ -42,6 +46,8 @@ Here is a complete enumeration of options.  Specify only those that you need.
         server_url = https://example.com:443       # specify server_url OR host
         username = USERNAME
         password = PASSWORD
+        dbadmin_username = DATABASE_ADMINISTRATOR_USERNAME
+        dbadmin_password = DATABASE_ADMINISTRATOR_PASSWORD
         tags = station=A,field=C                   # optional
         line_format = (multi-line | single-line)   # default is single-line
         obs_to_upload = (all | none)               # default is all
