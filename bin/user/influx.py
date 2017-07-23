@@ -255,8 +255,10 @@ class InfluxThread(weewx.restx.RESTThread):
     _DEFAULT_SERVER_URL = 'http://localhost:8086'
 
     def __init__(self, queue, database,
-                 username=None, password=None, line_format='single-line',
-                 tags=None, unit_system=None, augment_record=True,
+                 username=None, password=None,
+                 dbadmin_username=None, dbadmin_password=None,
+                 line_format='single-line', tags=None,
+                 unit_system=None, augment_record=True,
                  inputs=dict(), obs_to_upload='all', append_units_label=True,
                  server_url=_DEFAULT_SERVER_URL, skip_upload=False,
                  manager_dict=None,
@@ -306,8 +308,8 @@ class InfluxThread(weewx.restx.RESTThread):
                 '%s:%s' % (uname, pword)).replace('\n', '')
             req.add_header("Authorization", "Basic %s" % b64s)
         try:
-            self.post_with_retries(req)
-        except (weewx.restx.FailedPost, weewx.restx.AbortedPost), e:
+            self.post_request(req)
+        except (urllib2.URLError, socket.error, httplib.BadStatusLine, httplib.IncompleteRead), e:
             logerr("create database failed: %s" % e)
 
     def process_record(self, record, dbm):
