@@ -88,7 +88,7 @@ import weewx.restx
 import weewx.units
 from weeutil.weeutil import to_bool, accumulateLeaves
 
-VERSION = "0.6"
+VERSION = "0.7"
 
 REQUIRED_WEEWX = "3.5.0"
 if StrictVersion(weewx.__version__) < StrictVersion(REQUIRED_WEEWX):
@@ -303,7 +303,7 @@ class InfluxThread(weewx.restx.RESTThread):
         elif username is not None:
             uname = username
             pword = password
-        if un is not None:
+        if uname is not None:
             b64s = base64.encodestring(
                 '%s:%s' % (uname, pword)).replace('\n', '')
             req.add_header("Authorization", "Basic %s" % b64s)
