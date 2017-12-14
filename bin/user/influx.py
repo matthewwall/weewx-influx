@@ -78,6 +78,8 @@ the input, independent of the local weewx units.
 import Queue
 import base64
 from distutils.version import StrictVersion
+import httplib
+import socket
 import sys
 import syslog
 import urllib
@@ -161,7 +163,7 @@ class Influx(weewx.restx.StdRESTbase):
 
         server_url: full restful endpoint of the server
         Default is None
-        
+
         tags: name-value pairs to identify the measurement
         Default is None
 
@@ -185,7 +187,7 @@ class Influx(weewx.restx.StdRESTbase):
         binding: either loop or archive
         Default is archive
         """
-        super(Influx, self).__init__(engine, cfg_dict)        
+        super(Influx, self).__init__(engine, cfg_dict)
         loginf("service version is %s" % VERSION)
         try:
             site_dict = cfg_dict['StdRESTful']['Influx']
