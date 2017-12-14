@@ -88,7 +88,7 @@ import weewx.restx
 import weewx.units
 from weeutil.weeutil import to_bool, accumulateLeaves
 
-VERSION = "0.7"
+VERSION = "0.8"
 
 REQUIRED_WEEWX = "3.5.0"
 if StrictVersion(weewx.__version__) < StrictVersion(REQUIRED_WEEWX):
@@ -181,6 +181,9 @@ class Influx(weewx.restx.StdRESTbase):
         inputs: dictionary of weewx observation names with optional upload
         name, format, and units
         Default is None
+
+        binding: either loop or archive
+        Default is archive
         """
         super(Influx, self).__init__(engine, cfg_dict)        
         loginf("service version is %s" % VERSION)
@@ -236,19 +239,34 @@ class Influx(weewx.restx.StdRESTbase):
             loginf("tags %s" % site_dict['tags'])
         loginf("database is %s" % site_dict['database'])
 
-        self.archive_queue = Queue.Queue()
+        # we can bind to either loop packets or archive records
+        binding = site_dict.pop('binding', 'archive')
+        loginf('binding is %s' % binding)
+
+        data_queue = Queue.Queue()
         try:
-            self.archive_thread = InfluxThread(self.archive_queue, **site_dict)
+            data_thread = InfluxThread(self.archive_queue, **site_dict)
         except weewx.ViolatedPrecondition, e:
             loginf("Data will not be posted: %s" % e)
             return
+        data_thread.start()
 
-        self.archive_thread.start()
-        self.bind(weewx.NEW_ARCHIVE_RECORD, self.new_archive_record)
+        if binding.lower() == 'loop':
+            self.archive_queue = data_queue
+            self.archive_thread = data_thread
+            self.bind(weewx.NEW_LOOP_PACKET, self.new_loop_packet)
+        else:
+            self.loop_queue = data_queue
+            self.loop_thread = data_thread
+            self.bind(weewx.NEW_ARCHIVE_RECORD, self.new_archive_record)
         loginf("Data will be uploaded to %s" % site_dict['server_url'])
+
+    def new_loop_packet(self, event):
+        self.loop_queue.put(event.packet)
 
     def new_archive_record(self, event):
         self.archive_queue.put(event.record)
+
 
 class InfluxThread(weewx.restx.RESTThread):
 

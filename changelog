@@ -1,3 +1,6 @@
+0.8 14dec2017
+* bind to either loop packets or archive records
+
 0.7 14aug2017
 * fixed stoopid bug
 
