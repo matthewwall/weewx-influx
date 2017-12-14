@@ -82,6 +82,8 @@ import sys
 import syslog
 import urllib
 import urllib2
+import socket
+import httplib
 
 import weewx
 import weewx.restx
@@ -161,7 +163,7 @@ class Influx(weewx.restx.StdRESTbase):
 
         server_url: full restful endpoint of the server
         Default is None
-        
+
         tags: name-value pairs to identify the measurement
         Default is None
 
@@ -182,7 +184,7 @@ class Influx(weewx.restx.StdRESTbase):
         name, format, and units
         Default is None
         """
-        super(Influx, self).__init__(engine, cfg_dict)        
+        super(Influx, self).__init__(engine, cfg_dict)
         loginf("service version is %s" % VERSION)
         try:
             site_dict = cfg_dict['StdRESTful']['Influx']
@@ -207,10 +209,14 @@ class Influx(weewx.restx.StdRESTbase):
         site_dict.setdefault('obs_to_upload', 'all')
         site_dict.setdefault('append_units_label', True)
         site_dict.setdefault('augment_record', True)
+        site_dict.setdefault('archive_post', True);
+        site_dict.setdefault('rapidfire', False);
 
         site_dict['append_units_label'] = to_bool(
             site_dict.get('append_units_label'))
         site_dict['augment_record'] = to_bool(site_dict.get('augment_record'))
+        site_dict['rapidfire'] = to_bool(site_dict.get('rapidfire'))
+        site_dict['archive_post'] = to_bool(site_dict.get('archive_post'))
 
         usn = site_dict.get('unit_system', None)
         if usn in weewx.units.unit_constants:
@@ -236,19 +242,50 @@ class Influx(weewx.restx.StdRESTbase):
             loginf("tags %s" % site_dict['tags'])
         loginf("database is %s" % site_dict['database'])
 
-        self.archive_queue = Queue.Queue()
-        try:
-            self.archive_thread = InfluxThread(self.archive_queue, **site_dict)
-        except weewx.ViolatedPrecondition, e:
-            loginf("Data will not be posted: %s" % e)
-            return
+        self.do_archivepost = site_dict['archive_post']
+        self.do_rapidfire=site_dict['rapidfire']
 
-        self.archive_thread.start()
-        self.bind(weewx.NEW_ARCHIVE_RECORD, self.new_archive_record)
-        loginf("Data will be uploaded to %s" % site_dict['server_url'])
+        if self.do_archivepost:
+            self.archive_queue = Queue.Queue()
+            try:
+                self.archive_thread = InfluxThread(self.archive_queue, **site_dict)
+            except weewx.ViolatedPrecondition, e:
+                loginf("Data will not be posted: %s" % e)
+                return
+
+            self.archive_thread.start()
+
+            self.bind(weewx.NEW_ARCHIVE_RECORD, self.new_archive_record)
+            loginf("Archive data will be uploaded to %s" % site_dict['server_url'])
+
+        if self.do_rapidfire:
+            self.rapidfire_queue = Queue.Queue()
+            self.cached_values = CachedValues()
+            try:
+                self.rapidfire_thread = InfluxLoopThread(self.rapidfire_queue, **site_dict)
+            except weewx.ViolatedPrecondition, e:
+                loginf("Data will not be posted: %s" % e)
+                return
+            self.rapidfire_thread.start()
+            self.bind(weewx.NEW_LOOP_PACKET, self.new_loop_packet)
+            loginf("Rapidfire data will be uploaded to %s" % site_dict['server_url'])
+
+
 
     def new_archive_record(self, event):
         self.archive_queue.put(event.record)
+
+    def new_loop_packet(self, event):
+        """Puts new LOOP packets in the loop queue"""
+        if weewx.debug >= 3:
+            logdbg("Influx: raw packet: %s" % to_sorted_string(event.packet))
+        self.cached_values.update(event.packet, event.packet['dateTime'])
+        if weewx.debug >= 3:
+            logdbg("Influx: cached packet: %s" %
+                          to_sorted_string(self.cached_values.get_packet(event.packet['dateTime'])))
+        self.rapidfire_queue.put(
+            self.cached_values.get_packet(event.packet['dateTime']))
+
 
 class InfluxThread(weewx.restx.RESTThread):
 
@@ -264,7 +301,8 @@ class InfluxThread(weewx.restx.RESTThread):
                  manager_dict=None,
                  post_interval=None, max_backlog=sys.maxint, stale=None,
                  log_success=True, log_failure=True,
-                 timeout=60, max_tries=3, retry_wait=5):
+                 timeout=60, max_tries=3, retry_wait=5,
+                 archive_post=True, rapidfire=False):
         super(InfluxThread, self).__init__(queue,
                                            protocol_name='Influx',
                                            manager_dict=manager_dict,
@@ -424,6 +462,61 @@ class InfluxThread(weewx.restx.RESTThread):
             return '\n'.join(data)
         return 'record%s %s %d' % (
             tags, ','.join(data), record['dateTime']*1000000000)
+
+class CachedValues(object):
+    """Dictionary of value-timestamp pairs.  Each timestamp indicates when the
+    corresponding value was last updated."""
+
+    def __init__(self):
+        self.unit_system = None
+        self.values = dict()
+
+    def update(self, packet, ts):
+        # update the cache with values from the specified packet, using the
+        # specified timestamp.
+        # FIXME: the cache should not check for values of None.  however, if
+        # values of None are included, that breaks the whole purpose of the
+        # cache.  the root cause of this is the StdWXCalculate service and the
+        # drivers themselves.  if a driver knows a sensor has a bad value, then
+        # it should use a value of None.  otherwise, it should not put the
+        # observation in the packet.  similarly for calculate service.  if the
+        # service does not have all the inputs for a given derived, it should
+        # not insert a derived with value of None.  it should insert a value of
+        # None only if all the inputs exist and the result is None.
+        for k in packet:
+            if k is None or k == 'dateTime':
+                continue
+            elif k == 'usUnits':
+                if self.unit_system is None:
+                    self.unit_system = packet['usUnits']
+                elif packet['usUnits'] != self.unit_system:
+                    raise ValueError("Mixed units encountered in cache. %s vs %s" % \
+                                     (self.unit_sytem, packet['usUnits']))
+            else:
+                self.values[k] = {'value': packet[k], 'ts': ts}
+
+    def get_value(self, k, ts, stale_age):
+        # get the value for the specified key.  if the value is older than
+        # stale_age (seconds) then return None.
+        if k in self.values and ts - self.values[k]['ts'] < stale_age:
+            return self.values[k]['value']
+        return None
+
+    def get_packet(self, ts=None, stale_age=960):
+        if ts is None:
+            ts = int(time.time() + 0.5)
+        pkt = {'dateTime': ts, 'usUnits': self.unit_system}
+        for k in self.values:
+            pkt[k] = self.get_value(k, ts, stale_age)
+        return pkt
+
+
+class InfluxLoopThread(InfluxThread):
+    _DEFAULT_SERVER_URL = 'http://localhost:8086'
+
+    def __init__(self, queue, **kwargs):
+        super(InfluxLoopThread, self).__init__(queue, **kwargs)
+
 
 # Use this hook to test the uploader:
 #   PYTHONPATH=bin python bin/user/influx.py
