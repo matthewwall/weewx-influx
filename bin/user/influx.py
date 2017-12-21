@@ -254,12 +254,12 @@ class Influx(weewx.restx.StdRESTbase):
         data_thread.start()
 
         if binding.lower() == 'loop':
-            self.archive_queue = data_queue
-            self.archive_thread = data_thread
-            self.bind(weewx.NEW_LOOP_PACKET, self.new_loop_packet)
-        else:
             self.loop_queue = data_queue
             self.loop_thread = data_thread
+            self.bind(weewx.NEW_LOOP_PACKET, self.new_loop_packet)
+        else:
+            self.archive_queue = data_queue
+            self.archive_thread = data_thread
             self.bind(weewx.NEW_ARCHIVE_RECORD, self.new_archive_record)
         loginf("Data will be uploaded to %s" % site_dict['server_url'])
 
