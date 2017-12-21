@@ -90,7 +90,7 @@ import weewx.restx
 import weewx.units
 from weeutil.weeutil import to_bool, accumulateLeaves
 
-VERSION = "0.8"
+VERSION = "0.9"
 
 REQUIRED_WEEWX = "3.5.0"
 if StrictVersion(weewx.__version__) < StrictVersion(REQUIRED_WEEWX):
@@ -247,7 +247,7 @@ class Influx(weewx.restx.StdRESTbase):
 
         data_queue = Queue.Queue()
         try:
-            data_thread = InfluxThread(self.archive_queue, **site_dict)
+            data_thread = InfluxThread(data_queue, **site_dict)
         except weewx.ViolatedPrecondition, e:
             loginf("Data will not be posted: %s" % e)
             return

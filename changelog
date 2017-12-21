@@ -1,3 +1,6 @@
+0.9 21dec2017
+* fixed typo in thread creation
+
 0.8 14dec2017
 * bind to either loop packets or archive records
 * fix missing imports for exceptions (thanks to user mwzappe!)
