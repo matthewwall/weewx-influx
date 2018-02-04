@@ -54,6 +54,7 @@ Here is a complete enumeration of options.  Specify only those that you need.
         append_units_label = (True | False)        # default is true
         augment_record = (True | False)            # default is true
         unit_system = (US | METRIC | METRICWX)     # default is database system
+        binding = (archive | loop)                 # default is archive
         [[[inputs]]]                               # optional
             [[[[observation1]]]]
                 units = degree_F                   # optional for each obs
