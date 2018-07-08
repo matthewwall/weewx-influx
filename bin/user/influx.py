@@ -90,7 +90,7 @@ import weewx.restx
 import weewx.units
 from weeutil.weeutil import to_bool, accumulateLeaves
 
-VERSION = "0.9"
+VERSION = "0.10"
 
 REQUIRED_WEEWX = "3.5.0"
 if StrictVersion(weewx.__version__) < StrictVersion(REQUIRED_WEEWX):
@@ -329,7 +329,7 @@ class InfluxThread(weewx.restx.RESTThread):
             req.add_header("Authorization", "Basic %s" % b64s)
         try:
             self.post_request(req)
-        except (urllib2.URLError, socket.error, httplib.BadStatusLine, httplib.IncompleteRead), e:
+        except (socket.error, socket.timeout, urllib2.URLError, httplib.BadStatusLine, httplib.IncompleteRead), e:
             logerr("create database failed: %s" % e)
 
     def process_record(self, record, dbm):
