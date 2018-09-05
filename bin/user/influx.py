@@ -501,7 +501,7 @@ class InfluxThread(weewx.restx.RESTThread):
                 if self.line_format == 'multi-line':
                     # use multiple lines
                     data.append('%s%s value=%s %d' %
-                                (name, tags, s, record['dateTime']*1000000))
+                                (name, tags, s, record['dateTime']*1000000000))
                 else:
                     # use a single line
                     data.append('%s=%s' % (name, s))
