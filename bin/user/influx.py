@@ -27,23 +27,63 @@ names and default units and formatting.
         host = influxservername.example.com
         database = DATABASE
 
-Customized Configuration
+Customization: line format and database structure
 
 This uploader supports two different formats for the influx line protocol.
-The first form is multi-line:
-
-name0[tags] value=x ts
-name1[tags] value=y ts
-name2[tags] value=z ts
-...
-
-The second form is single-line:
-
-record[tags] name0=x,name1=y,name2=z ts
 
 [StdRESTful]
     [[Influx]]
         line_format = multi-line # options are multi-line or single-line
+
+The single-line format results in the following:
+
+  record[tags] name0=x,name1=y,name2=z ts
+
+The multi-line format results in the following:
+
+  name0[tags] value=x ts
+  name1[tags] value=y ts
+  name2[tags] value=z ts
+  ...
+
+Which format should you use?  It depends on how you want the data to end up in
+influx.  For influx, think of measurement name as table, tags and column names,
+and fields as unindexed columns.
+
+For example, consider these data points:
+
+{'H19': 528, 'VPV': 63.68, 'I': 600, 'H21': 115, 'H20': 19, 'H23': 93, 'H22': 23, 'V': 13.41, 'CS': 5, 'PPV': 9}
+{'H19': 528, 'VPV': 63.68, 'I': 600, 'H21': 115, 'H20': 19, 'H23': 93, 'H22': 23, 'V': 14.43, 'CS': 5, 'PPV': 9}
+{'H19': 528, 'VPV': 63.71, 'I': 600, 'H21': 115, 'H20': 19, 'H23': 93, 'H22': 23, 'V': 13.43, 'CS': 5, 'PPV': 9}
+{'H19': 528, 'VPV': 63.74, 'I': 600, 'H21': 115, 'H20': 19, 'H23': 93, 'H22': 23, 'V': 13.43, 'CS': 5, 'PPV': 9}
+
+A single-line configuration:
+
+Results in this:
+
+> select * from value
+name: value
+time                CS H19 H20 H21 H22 H23 I   PPV V     VPV   binding
+----                -- --- --- --- --- --- -   --- -     ---   -------
+1536086335000000000 5  528 19  115 23  93  0.6 9   13.41 63.68 loop   
+1536086337000000000 5  528 19  115 23  93  0.6 9   13.43 63.68 loop   
+1536086339000000000 5  528 19  115 23  93  0.6 9   13.43 63.71 loop   
+1536086341000000000 5  528 19  115 23  93  0.6 9   13.43 63.74 loop   
+
+A multi-line configuration:
+
+Results in this:
+
+> select * from VPV
+name: value
+time                VPV
+----                ---
+1536086335000000000 63.68
+1536086337000000000 63.68
+1536086339000000000 63.71
+1536086341000000000 63.74
+
+Customization: controlling which variables are uploaded
 
 When an input map is specified, only variables in that map will be uploaded.
 The 'units' parameter can be used to specify which units should be used for
@@ -90,7 +130,7 @@ import weewx.restx
 import weewx.units
 from weeutil.weeutil import to_bool, accumulateLeaves
 
-VERSION = "0.10"
+VERSION = "0.11"
 
 REQUIRED_WEEWX = "3.5.0"
 if StrictVersion(weewx.__version__) < StrictVersion(REQUIRED_WEEWX):
@@ -126,6 +166,9 @@ UNIT_REDUCTIONS = {
     'percent': None,
     'unix_epoch': None,
 }
+
+# observations that should be skipped when obs_to_upload is 'most'
+OBS_TO_SKIP = ['dateTime', 'interval', 'usUnits']
 
 # return the units label for an observation
 def _get_units_label(obs, unit_system):
@@ -164,7 +207,11 @@ class Influx(weewx.restx.StdRESTbase):
         server_url: full restful endpoint of the server
         Default is None
 
-        tags: name-value pairs to identify the measurement
+        measurement: name of the measurement
+        Default is 'record'
+
+        tags: comma-delimited list of name=value pairs to identify the
+        measurement.  tags cannot contain spaces.
         Default is None
 
         line_format: which line protocol format to use.  Possible values are
@@ -175,16 +222,16 @@ class Influx(weewx.restx.StdRESTbase):
         Default is True
 
         obs_to_upload: Which observations to upload.  Possible values are
-        none or all.  When none is specified, only items in the inputs list
-        will be uploaded.  When all is specified, all observations will be
+        most, none, or all.  When none is specified, only items in the inputs
+        list will be uploaded.  When all is specified, all observations will be
         uploaded, subject to overrides in the inputs list.
-        Default is all
+        Default is most
 
         inputs: dictionary of weewx observation names with optional upload
         name, format, and units
         Default is None
 
-        binding: either loop or archive
+        binding: options include "loop", "archive", or "loop,archive"
         Default is archive
         """
         super(Influx, self).__init__(engine, cfg_dict)
@@ -196,6 +243,7 @@ class Influx(weewx.restx.StdRESTbase):
         except KeyError, e:
             logerr("Data will not be uploaded: Missing option %s" % e)
             return
+        loginf("database is %s" % site_dict['database'])
 
         port = int(site_dict.get('port', 8086))
         host = site_dict.get('host', 'localhost')
@@ -209,9 +257,10 @@ class Influx(weewx.restx.StdRESTbase):
         site_dict.setdefault('dbadmin_password', '')
         site_dict.setdefault('tags', None)
         site_dict.setdefault('line_format', 'single-line')
-        site_dict.setdefault('obs_to_upload', 'all')
+        site_dict.setdefault('obs_to_upload', 'most')
         site_dict.setdefault('append_units_label', True)
         site_dict.setdefault('augment_record', True)
+        site_dict.setdefault('measurement', 'record')
 
         site_dict['append_units_label'] = to_bool(
             site_dict.get('append_units_label'))
@@ -238,11 +287,14 @@ class Influx(weewx.restx.StdRESTbase):
             pass
 
         if 'tags' in site_dict:
+            if isinstance(site_dict['tags'], list):
+                site_dict['tags'] = ','.join(site_dict['tags'])
             loginf("tags %s" % site_dict['tags'])
-        loginf("database is %s" % site_dict['database'])
 
-        # we can bind to either loop packets or archive records
+        # we can bind to loop packets and/or archive records
         binding = site_dict.pop('binding', 'archive')
+        if isinstance(binding, list):
+            binding = ','.join(binding)
         loginf('binding is %s' % binding)
 
         data_queue = Queue.Queue()
@@ -253,21 +305,25 @@ class Influx(weewx.restx.StdRESTbase):
             return
         data_thread.start()
 
-        if binding.lower() == 'loop':
+        if 'loop' in binding.lower():
             self.loop_queue = data_queue
             self.loop_thread = data_thread
             self.bind(weewx.NEW_LOOP_PACKET, self.new_loop_packet)
-        else:
+        if 'archive' in binding.lower():
             self.archive_queue = data_queue
             self.archive_thread = data_thread
             self.bind(weewx.NEW_ARCHIVE_RECORD, self.new_archive_record)
         loginf("Data will be uploaded to %s" % site_dict['server_url'])
 
     def new_loop_packet(self, event):
-        self.loop_queue.put(event.packet)
+        data = {'binding': 'loop'}
+        data.update(event.packet)
+        self.loop_queue.put(data)
 
     def new_archive_record(self, event):
-        self.archive_queue.put(event.record)
+        data = {'binding': 'archive'}
+        data.update(event.record)
+        self.archive_queue.put(data)
 
 
 class InfluxThread(weewx.restx.RESTThread):
@@ -277,9 +333,10 @@ class InfluxThread(weewx.restx.RESTThread):
     def __init__(self, queue, database,
                  username=None, password=None,
                  dbadmin_username=None, dbadmin_password=None,
-                 line_format='single-line', tags=None,
+                 line_format='single-line',
+                 measurement='record', tags=None,
                  unit_system=None, augment_record=True,
-                 inputs=dict(), obs_to_upload='all', append_units_label=True,
+                 inputs=dict(), obs_to_upload='most', append_units_label=True,
                  server_url=_DEFAULT_SERVER_URL, skip_upload=False,
                  manager_dict=None,
                  post_interval=None, max_backlog=sys.maxint, stale=None,
@@ -299,8 +356,9 @@ class InfluxThread(weewx.restx.RESTThread):
         self.database = database
         self.username = username
         self.password = password
+        self.measurement = measurement
         self.tags = tags
-        self.upload_all = True if obs_to_upload.lower() == 'all' else False
+        self.obs_to_upload = obs_to_upload
         self.append_units_label = append_units_label
         self.inputs = inputs
         self.server_url = server_url
@@ -393,15 +451,24 @@ class InfluxThread(weewx.restx.RESTThread):
 #            return _response
 
     def get_data(self, record):
-        tags = ''
-        if self.tags:
-            tags = ',%s' % self.tags
+        measurement = self.measurement
 
-        # if uploading everything, we must check the upload variables list
-        # every time since variables may come and go in a record.  use the
-        # inputs to override any generic template generation.
-        if self.upload_all:
+        # create the list of tags
+        tags = ''
+        binding = record.pop('binding', None)
+        if binding is not None:
+            tags = ',binding=%s' % binding
+        if self.tags:
+            tags = '%s,%s' % (tags, self.tags)
+
+        # if uploading everything, we must check every time the list of
+        # variables that should be uploaded since variables may come and
+        # go in a record.  use the inputs to override any generic template
+        # generation.
+        if self.obs_to_upload == 'all' or self.obs_to_upload == 'most':
             for f in record:
+                if self.obs_to_upload == 'most' and f in OBS_TO_SKIP:
+                    continue
                 if f not in self.templates:
                     self.templates[f] = _get_template(f,
                                                       self.inputs.get(f, {}),
@@ -442,8 +509,8 @@ class InfluxThread(weewx.restx.RESTThread):
                 pass
         if self.line_format == 'multi-line':
             return '\n'.join(data)
-        return 'record%s %s %d' % (
-            tags, ','.join(data), record['dateTime']*1000000000)
+        return '%s%s %s %d' % (
+            measurement, tags, ','.join(data), record['dateTime']*1000000000)
 
 # Use this hook to test the uploader:
 #   PYTHONPATH=bin python bin/user/influx.py
