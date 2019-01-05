@@ -1,3 +1,6 @@
+0.12 05jan2019
+* added explicit option for create_database (thanks to user cstapher)
+
 0.11 04sep2018
 * added support for 'most' observations
 * added support for both loop and archive bindings

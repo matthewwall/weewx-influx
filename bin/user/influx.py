@@ -11,6 +11,9 @@ This is a weewx extension that uploads data to an Influx server.
 Database Configuration and Access
 
 When it starts up, this extension will attempt to create the influx database.
+
+To disable database creation, set create_database=False.
+
 If credentials for a database administrator were provided, it will use those
 credentials.  Otherwise, it will use the username/password credentials.
 
@@ -130,7 +133,7 @@ import weewx.restx
 import weewx.units
 from weeutil.weeutil import to_bool, accumulateLeaves
 
-VERSION = "0.11"
+VERSION = "0.12"
 
 REQUIRED_WEEWX = "3.5.0"
 if StrictVersion(weewx.__version__) < StrictVersion(REQUIRED_WEEWX):
@@ -214,6 +217,9 @@ class Influx(weewx.restx.StdRESTbase):
         measurement.  tags cannot contain spaces.
         Default is None
 
+        create_database: should the upload attempt to create database first
+        Default is True
+
         line_format: which line protocol format to use.  Possible values are
         single-line or multi-line.
         Default is single-line
@@ -255,6 +261,7 @@ class Influx(weewx.restx.StdRESTbase):
         site_dict.setdefault('password', '')
         site_dict.setdefault('dbadmin_username', None)
         site_dict.setdefault('dbadmin_password', '')
+        site_dict.setdefault('create_database', True)
         site_dict.setdefault('tags', None)
         site_dict.setdefault('line_format', 'single-line')
         site_dict.setdefault('obs_to_upload', 'most')
@@ -333,7 +340,7 @@ class InfluxThread(weewx.restx.RESTThread):
     def __init__(self, queue, database,
                  username=None, password=None,
                  dbadmin_username=None, dbadmin_password=None,
-                 line_format='single-line',
+                 line_format='single-line', create_database=True,
                  measurement='record', tags=None,
                  unit_system=None, augment_record=True,
                  inputs=dict(), obs_to_upload='most', append_units_label=True,
@@ -368,22 +375,28 @@ class InfluxThread(weewx.restx.RESTThread):
         self.templates = dict()
         self.line_format = line_format
 
+        if create_database:
+            uname = None
+            pword = None
+            if dbadmin_username is not None:
+                uname = dbadmin_username
+                pword = dbadmin_password
+            elif username is not None:
+                uname = username
+                pword = password
+            self.create_database(uname, pword)
+
+    def create_database(self, username, password):
         # ensure that the database exists
         qstr = urllib.urlencode({'q': 'CREATE DATABASE %s' % self.database})
         url = '%s/query?%s' % (self.server_url, qstr)
         req = urllib2.Request(url)
         req.add_header("User-Agent", "weewx/%s" % weewx.__version__)
-        uname = None
-        pword = None
-        if dbadmin_username is not None:
-            uname = dbadmin_username
-            pword = dbadmin_password
-        elif username is not None:
-            uname = username
-            pword = password
-        if uname is not None:
-            b64s = base64.encodestring(
-                '%s:%s' % (uname, pword)).replace('\n', '')
+        if username is not None:
+            auth = username
+            if password is not None:
+                auth = '%s:%s' % (username, password)
+            b64s = base64.encodestring(auth.replace('\n', ''))
             req.add_header("Authorization", "Basic %s" % b64s)
         try:
             self.post_request(req)
