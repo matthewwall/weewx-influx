@@ -396,7 +396,7 @@ class InfluxThread(weewx.restx.RESTThread):
             auth = username
             if password is not None:
                 auth = '%s:%s' % (username, password)
-            b64s = base64.encodestring(auth.replace('\n', ''))
+            b64s = base64.encodestring(auth).replace('\n', '')
             req.add_header("Authorization", "Basic %s" % b64s)
         try:
             self.post_request(req)
