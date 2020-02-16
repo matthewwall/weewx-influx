@@ -158,9 +158,6 @@ if StrictVersion(weewx.__version__) < StrictVersion(REQUIRED_WEEWX):
     raise weewx.UnsupportedFeature("weewx %s or greater is required, found %s"
                                    % (REQUIRED_WEEWX, weewx.__version__))
 
-PY2 = sys.version_info[0] == 2
-PY3 = sys.version_info[0] == 3
-
 try:
     # Test for new-style weewx logging by trying to import weeutil.logger
     import weeutil.logger
