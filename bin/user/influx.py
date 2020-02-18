@@ -281,13 +281,10 @@ class Influx(weewx.restx.StdRESTbase):
         """
         super(Influx, self).__init__(engine, cfg_dict)
         loginf("service version is %s" % VERSION)
-        try:
-            site_dict = cfg_dict['StdRESTful']['Influx']
-            site_dict = accumulateLeaves(site_dict, max_level=1)
-            site_dict['database']
-        except KeyError as e:
-            logerr("Data will not be uploaded: Missing option %s" % e)
+        site_dict = weewx.restx.get_site_dict(cfg_dict, 'Influx', 'database')
+        if site_dict is None:
             return
+
         loginf("database is %s" % site_dict['database'])
 
         port = int(site_dict.get('port', 8086))
