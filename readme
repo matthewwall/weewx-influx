@@ -5,9 +5,13 @@ Distributed under terms of the GPLv3
 ===============================================================================
 Installation
 
+0) download
+
+wget -O weewx-influx.zip https://github.com/matthewwall/weewx-influx/archive/master.zip
+
 1) run the installer:
 
-wee_extension --install weewx-influx.tgz
+wee_extension --install weewx-influx.zip
 
 2) enter parameters in weewx.conf:
 
