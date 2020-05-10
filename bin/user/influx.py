@@ -1,4 +1,4 @@
-# Copyright 2016 Matthew Wall
+# Copyright 2016-2020 Matthew Wall
 # Distributed under the terms of the GNU Public License (GPLv3)
 
 """
@@ -118,39 +118,76 @@ the input, independent of the local weewx units.
                 format = %03.0f
 """
 
-import Queue
+try:
+    # Python 3
+    import queue
+except ImportError:
+    # Python 2
+    import Queue as queue
 import base64
 from distutils.version import StrictVersion
-import httplib
+try:
+    # Python 3
+    import http.client as http_client
+except ImportError:
+    # Python 2
+    import httplib as http_client
 import socket
+try:
+    # Python 3
+    from urllib.parse import urlparse, urlencode
+    from urllib.request import urlopen, Request
+    from urllib.error import HTTPError, URLError
+except ImportError:
+    # Python 2
+    from urlparse import urlparse
+    from urllib import urlencode
+    from urllib2 import urlopen, Request, HTTPError, URLError
+    from httplib import BadStatusLine
 import sys
-import syslog
-import urllib
-import urllib2
 
 import weewx
 import weewx.restx
 import weewx.units
 from weeutil.weeutil import to_bool, accumulateLeaves
 
-VERSION = "0.12"
+VERSION = "0.20"
 
 REQUIRED_WEEWX = "3.5.0"
 if StrictVersion(weewx.__version__) < StrictVersion(REQUIRED_WEEWX):
     raise weewx.UnsupportedFeature("weewx %s or greater is required, found %s"
                                    % (REQUIRED_WEEWX, weewx.__version__))
 
-def logmsg(level, msg):
-    syslog.syslog(level, 'restx: Influx: %s' % msg)
+try:
+    # Test for new-style weewx logging by trying to import weeutil.logger
+    import weeutil.logger
+    import logging
+    log = logging.getLogger(__name__)
 
-def logdbg(msg):
-    logmsg(syslog.LOG_DEBUG, msg)
+    def logdbg(msg):
+        log.debug(msg)
 
-def loginf(msg):
-    logmsg(syslog.LOG_INFO, msg)
+    def loginf(msg):
+        log.info(msg)
 
-def logerr(msg):
-    logmsg(syslog.LOG_ERR, msg)
+    def logerr(msg):
+        log.error(msg)
+
+except ImportError:
+    # Old-style weewx logging
+    import syslog
+
+    def logmsg(level, msg):
+        syslog.syslog(level, 'restx: Influx: %s:' % msg)
+
+    def logdbg(msg):
+        logmsg(syslog.LOG_DEBUG, msg)
+
+    def loginf(msg):
+        logmsg(syslog.LOG_INFO, msg)
+
+    def logerr(msg):
+        logmsg(syslog.LOG_ERR, msg)
 
 # some unit labels are rather lengthy.  this reduces them to something shorter.
 UNIT_REDUCTIONS = {
@@ -172,6 +209,8 @@ UNIT_REDUCTIONS = {
 
 # observations that should be skipped when obs_to_upload is 'most'
 OBS_TO_SKIP = ['dateTime', 'interval', 'usUnits']
+
+MAX_SIZE = 1000000
 
 # return the units label for an observation
 def _get_units_label(obs, unit_system):
@@ -242,13 +281,10 @@ class Influx(weewx.restx.StdRESTbase):
         """
         super(Influx, self).__init__(engine, cfg_dict)
         loginf("service version is %s" % VERSION)
-        try:
-            site_dict = cfg_dict['StdRESTful']['Influx']
-            site_dict = accumulateLeaves(site_dict, max_level=1)
-            site_dict['database']
-        except KeyError, e:
-            logerr("Data will not be uploaded: Missing option %s" % e)
+        site_dict = weewx.restx.get_site_dict(cfg_dict, 'Influx', 'database')
+        if site_dict is None:
             return
+
         loginf("database is %s" % site_dict['database'])
 
         port = int(site_dict.get('port', 8086))
@@ -304,10 +340,10 @@ class Influx(weewx.restx.StdRESTbase):
             binding = ','.join(binding)
         loginf('binding is %s' % binding)
 
-        data_queue = Queue.Queue()
+        data_queue = queue.Queue()
         try:
             data_thread = InfluxThread(data_queue, **site_dict)
-        except weewx.ViolatedPrecondition, e:
+        except weewx.ViolatedPrecondition as e:
             loginf("Data will not be posted: %s" % e)
             return
         data_thread.start()
@@ -346,7 +382,7 @@ class InfluxThread(weewx.restx.RESTThread):
                  inputs=dict(), obs_to_upload='most', append_units_label=True,
                  server_url=_DEFAULT_SERVER_URL, skip_upload=False,
                  manager_dict=None,
-                 post_interval=None, max_backlog=sys.maxint, stale=None,
+                 post_interval=None, max_backlog=MAX_SIZE, stale=None,
                  log_success=True, log_failure=True,
                  timeout=60, max_tries=3, retry_wait=5):
         super(InfluxThread, self).__init__(queue,
@@ -378,51 +414,56 @@ class InfluxThread(weewx.restx.RESTThread):
         if create_database:
             uname = None
             pword = None
-            if dbadmin_username is not None:
+            if dbadmin_username:
                 uname = dbadmin_username
                 pword = dbadmin_password
-            elif username is not None:
+            elif username:
                 uname = username
                 pword = password
             self.create_database(uname, pword)
 
     def create_database(self, username, password):
         # ensure that the database exists
-        qstr = urllib.urlencode({'q': 'CREATE DATABASE %s' % self.database})
+        qstr = urlencode({'q': 'CREATE DATABASE %s' % self.database})
         url = '%s/query?%s' % (self.server_url, qstr)
-        req = urllib2.Request(url)
+        req = Request(url)
         req.add_header("User-Agent", "weewx/%s" % weewx.__version__)
-        if username is not None:
-            auth = username
-            if password is not None:
-                auth = '%s:%s' % (username, password)
-            b64s = base64.encodestring(auth).replace('\n', '')
-            req.add_header("Authorization", "Basic %s" % b64s)
+        if username and password:
+            # Create a base64 byte string with the authorization info
+            base64bytes = base64.b64encode(('%s:%s' % (self.username, self.password)).encode())
+            # Add the authentication header to the request:
+            req.add_header("Authorization", b"Basic %s" % base64bytes)
         try:
-            self.post_request(req)
-        except (socket.error, socket.timeout, urllib2.URLError, httplib.BadStatusLine, httplib.IncompleteRead), e:
+            # The use of a GET to create a database has been deprecated.
+            # Include a dummy payload to force a POST.
+            self.post_request(req, 'None')
+        except (socket.error, socket.timeout, URLError, http_client.BadStatusLine, http_client.IncompleteRead) as e:
             logerr("create database failed: %s" % e)
 
-    def process_record(self, record, dbm):
+    def get_record(self, record, dbm):
+        # We allow the superclass to add stuff to the record only if the user
+        # requests it
         if self.augment_record and dbm:
-            record = self.get_record(record, dbm)
+            record = super(InfluxThread, self).get_record(record, dbm)
         if self.unit_system is not None:
             record = weewx.units.to_std_system(record, self.unit_system)
-        url = '%s/write?db=%s' % (self.server_url, self.database)
-        data = self.get_data(record)
-        if weewx.debug >= 2:
-            logdbg('url: %s' % url)
-            logdbg('data: %s' % data)
-        if self.skip_upload:
-            raise AbortedPost()
-        req = urllib2.Request(url, data)
-        req.add_header("User-Agent", "weewx/%s" % weewx.__version__)
-        if self.username is not None:
-            b64s = base64.encodestring(
-                '%s:%s' % (self.username, self.password)).replace('\n', '')
-            req.add_header("Authorization", "Basic %s" % b64s)
-        req.get_method = lambda: 'POST'
-        self.post_with_retries(req)
+        return record
+
+    def format_url(self, _):
+        return '%s/write?db=%s' % (self.server_url, self.database)
+
+    def get_request(self, url):
+        """Override and add username and password"""
+
+        # Get the basic Request from my superclass
+        request = super(InfluxThread, self).get_request(url)
+
+        if self.username and self.password:
+            # Create a base64 byte string with the authorization info
+            base64string = base64.b64encode(('%s:%s' % (self.username, self.password)).encode())
+            # Add the authentication header to the request:
+            request.add_header("Authorization", b"Basic %s" % base64string)
+        return request
 
     def check_response(self, response):
         if response.code == 204:
@@ -435,7 +476,7 @@ class InfluxThread(weewx.restx.RESTThread):
                                      (response.read(), response.code))
 
     def handle_exception(self, e, count):
-        if isinstance(e, urllib2.HTTPError):
+        if isinstance(e, HTTPError):
             payload = e.read()
             logdbg("exception: %s payload: %s" % (e, payload))
             if payload and payload.find("error") >= 0:
@@ -447,24 +488,13 @@ class InfluxThread(weewx.restx.RESTThread):
         # FIXME: provide full set of ssl options instead of this hack
         if self.server_url.startswith('https'):
             import ssl
-            return urllib2.urlopen(request, data=payload, timeout=self.timeout,
-                                   context=ssl._create_unverified_context())
-        return urllib2.urlopen(request, data=payload, timeout=self.timeout)
+            return urlopen(request, data=payload, timeout=self.timeout,
+                           context=ssl._create_unverified_context())
+        else:
+            return super(InfluxThread, self).post_request(request, payload)
 
-#    def post_request(self, request, payload=None):  # @UnusedVariable
-#        try:
-#            try:
-#                _response = urllib2.urlopen(request, timeout=self.timeout)
-#            except TypeError:
-#                _response = urllib2.urlopen(request)
-#        except urllib2.HTTPError, e:
-#            logerr("post failed: %s" % e)
-#            raise weewx.restx.FailedPost(e)
-#        else:
-#            return _response
-
-    def get_data(self, record):
-        measurement = self.measurement
+    def get_post_body(self, record):
+        """Override my superclass and get the body of the POST"""
 
         # create the list of tags
         tags = ''
@@ -521,24 +551,77 @@ class InfluxThread(weewx.restx.RESTThread):
             except (TypeError, ValueError):
                 pass
         if self.line_format == 'multi-line':
-            return '\n'.join(data)
-        return '%s%s %s %d' % (
-            measurement, tags, ','.join(data), record['dateTime']*1000000000)
+            str_data = '\n'.join(data)
+        else:
+            str_data = '%s%s %s %d' % (self.measurement, tags, ','.join(data), record['dateTime']*1000000000)
+
+        return str_data, 'application/x-www-form-urlencoded'
 
 # Use this hook to test the uploader:
 #   PYTHONPATH=bin python bin/user/influx.py
 
 if __name__ == "__main__":
+    import optparse
     import time
+
     weewx.debug = 2
-    queue = Queue.Queue()
+
+    usage = """Usage: python -m influx --help
+       python -m influx --version
+       python -m influx [--server-url=SERVER-URL] 
+                        [--user=USER] [--password=PASSWORD]
+                        [--admin-user=ADMIN-USER] [--admin-password=ADMIN-PASSWORD]
+                        [--database=DBNAME] [--measurement=MEASUREMENT]
+                        [--tags=TAGS]"""
+
+    parser = optparse.OptionParser(usage=usage)
+    parser.add_option('--version', action='store_true',
+                      help='Display weewx-influx version')
+    parser.add_option('--server-url', default='http://localhost:8086',
+                      help="URL for the InfluxDB server. Default is 'http://localhost:8086'",
+                      metavar="SERVER-URL")
+    parser.add_option('--user', default='weewx',
+                      help="User name to be used for data posts. Default is 'weewx'",
+                      metavar="USER")
+    parser.add_option('--password', default='weewx',
+                      help="Password for USER. Default is 'weewx'",
+                      metavar="PASSWORD")
+    parser.add_option('--admin-user',
+                      help="Admin user to be used when creating the database.",
+                      metavar="ADMIN-USER")
+    parser.add_option('--admin-password',
+                      help="Password for ADMIN-USER.",
+                      metavar="ADMIN-PASSWORD")
+    parser.add_option('--database', default='tester',
+                      help="InfluxDB database name. Default is 'tester'",
+                      metavar="DBNAME")
+    parser.add_option('--measurement', default='record',
+                      help="InfluxDB measurement name. Default is 'record'",
+                      metavar="MEASUREMENT")
+    parser.add_option('--tags', default='station=A,field=C',
+                      help="Influxdb tags to be used. Default is 'station=A,field=C'",
+                      metavar="TAGS")
+    (options, args) = parser.parse_args()
+
+    if options.version:
+        print("weewx-influxdb version %s" % VERSION)
+        exit(0)
+
+    print("Using server-url of '%s'" % options.server_url)
+
+    queue = queue.Queue()
     t = InfluxThread(queue,
                      manager_dict=None,
-                     database='tester',
-                     tags='station=A,field=C',
-                     server_url='http://192.168.101.39:8086')
-    t.process_record({'dateTime': int(time.time() + 0.5),
-                      'usUnits': weewx.US,
-                      'outTemp': 32.5,
-                      'inTemp': 75.8,
-                      'outHumidity': 24}, None)
+                     database=options.database,
+                     username=options.user,
+                     password=options.password,
+                     measurement=options.measurement,
+                     tags=options.tags,
+                     server_url=options.server_url)
+    queue.put({'dateTime': int(time.time() + 0.5),
+               'usUnits': weewx.US,
+               'outTemp': 32.5,
+               'inTemp': 75.8,
+               'outHumidity': 24})
+    queue.put(None)
+    t.run()
