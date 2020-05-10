@@ -151,7 +151,7 @@ import weewx.restx
 import weewx.units
 from weeutil.weeutil import to_bool, accumulateLeaves
 
-VERSION = "0.20"
+VERSION = "0.13"
 
 REQUIRED_WEEWX = "3.5.0"
 if StrictVersion(weewx.__version__) < StrictVersion(REQUIRED_WEEWX):
