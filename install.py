@@ -10,7 +10,7 @@ def loader():
 class InfluxInstaller(ExtensionInstaller):
     def __init__(self):
         super(InfluxInstaller, self).__init__(
-            version="0.13",
+            version="0.14",
             name='influx',
             description='Upload weather data to Influx.',
             author="Matthew Wall",

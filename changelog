@@ -1,4 +1,7 @@
-0.13 14feb2929
+0.14 10may2020
+* fix scaling of time in multi-line format (thanks to user spiegel0)
+
+0.13 14feb2020
 * Ported to Python 3 and WeeWX V4
 
 0.12 05jan2019
