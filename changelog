@@ -1,3 +1,6 @@
+0.15 10may2020
+* use correct units label when overriding individual observations
+
 0.14 10may2020
 * fix scaling of time in multi-line format (thanks to user spiegel0)
 

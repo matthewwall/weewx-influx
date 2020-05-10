@@ -151,7 +151,7 @@ import weewx.restx
 import weewx.units
 from weeutil.weeutil import to_bool, accumulateLeaves
 
-VERSION = "0.14"
+VERSION = "0.15"
 
 REQUIRED_WEEWX = "3.5.0"
 if StrictVersion(weewx.__version__) < StrictVersion(REQUIRED_WEEWX):
@@ -198,6 +198,8 @@ UNIT_REDUCTIONS = {
     'mile_per_hour2': 'mph',
     'km_per_hour': 'kph',
     'km_per_hour2': 'kph',
+    'knot': 'knot',
+    'knot2': 'knot',
     'meter_per_second': 'mps',
     'meter_per_second2': 'mps',
     'degree_compass': None,
@@ -213,15 +215,17 @@ OBS_TO_SKIP = ['dateTime', 'interval', 'usUnits']
 MAX_SIZE = 1000000
 
 # return the units label for an observation
-def _get_units_label(obs, unit_system):
-    (unit_type, _) = weewx.units.getStandardUnitType(unit_system, obs)
+def _get_units_label(obs, unit_system, unit_type=None):
+    if unit_type is None:
+        (unit_type, _) = weewx.units.getStandardUnitType(unit_system, obs)
     return UNIT_REDUCTIONS.get(unit_type, unit_type)
 
 # get the template for an observation based on the observation key
 def _get_template(obs_key, overrides, append_units_label, unit_system):
     tmpl_dict = dict()
     if append_units_label:
-        label = _get_units_label(obs_key, unit_system)
+        unit_type = overrides.get('units')
+        label = _get_units_label(obs_key, unit_system, unit_type)
         if label is not None:
             tmpl_dict['name'] = "%s_%s" % (obs_key, label)
     for x in ['name', 'format', 'units']:
