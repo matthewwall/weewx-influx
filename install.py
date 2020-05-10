@@ -1,5 +1,5 @@
 # installer for influx
-# Copyright 2016 Matthew Wall
+# Copyright 2016-2020 Matthew Wall
 # Distributed under the terms of the GNU Public License (GPLv3)
 
 from weecfg.extension import ExtensionInstaller

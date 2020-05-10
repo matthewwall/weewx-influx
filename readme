@@ -1,26 +1,26 @@
 influx - weewx extension that sends data to an influx data server
-Copyright 2016-2017 Matthew Wall
+Copyright 2016-2020 Matthew Wall
 Distributed under terms of the GPLv3
 
 ===============================================================================
 Installation
 
-0) download
+1) download
 
 wget -O weewx-influx.zip https://github.com/matthewwall/weewx-influx/archive/master.zip
 
-1) run the installer:
+2) run the installer:
 
 wee_extension --install weewx-influx.zip
 
-2) enter parameters in weewx.conf:
+3) enter parameters in weewx.conf:
 
 [StdRESTful]
     [[Influx]]
         host = HOSTNAME
         database = DATABASE
 
-3) restart weewx:
+4) restart weewx:
 
 sudo /etc/init.d/weewx stop
 sudo /etc/init.d/weewx start
