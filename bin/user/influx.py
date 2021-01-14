@@ -472,16 +472,16 @@ class InfluxThread(weewx.restx.RESTThread):
     def check_response(self, response):
         if response.code == 204:
             return
-        payload = response.read()
+        payload = response.read().decode()
         if payload and payload.find('results') >= 0:
             logdbg("code: %s payload: %s" % (response.code, payload))
             return
         raise weewx.restx.FailedPost("Server returned '%s' (%s)" %
-                                     (response.read(), response.code))
+                                     (payload, response.code))
 
     def handle_exception(self, e, count):
         if isinstance(e, HTTPError):
-            payload = e.read()
+            payload = e.read().decode()
             logdbg("exception: %s payload: %s" % (e, payload))
             if payload and payload.find("error") >= 0:
                 if payload.find("database not found") >= 0:
