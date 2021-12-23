@@ -317,6 +317,7 @@ class Influx(weewx.restx.StdRESTbase):
 
         loginf("database: %s" % site_dict['database'])
         loginf("destination: %s" % site_dict['server_url'])
+        loginf("line_format: %s" % site_dict['line_format'])
         loginf("measurement: %s" % site_dict['measurement'])
 
         site_dict['append_units_label'] = to_bool(
