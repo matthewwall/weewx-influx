@@ -185,7 +185,7 @@ except ImportError:
     import syslog
 
     def logmsg(level, msg):
-        syslog.syslog(level, 'restx: Influx: %s:' % msg)
+        syslog.syslog(level, 'restx: Influx: %s' % msg)
 
     def logdbg(msg):
         logmsg(syslog.LOG_DEBUG, msg)
@@ -296,7 +296,6 @@ class Influx(weewx.restx.StdRESTbase):
         if site_dict is None:
             return
 
-        loginf("database is %s" % site_dict['database'])
 
         port = int(site_dict.get('port', 8086))
         host = site_dict.get('host', 'localhost')
@@ -316,6 +315,10 @@ class Influx(weewx.restx.StdRESTbase):
         site_dict.setdefault('augment_record', True)
         site_dict.setdefault('measurement', 'record')
 
+        loginf("database: %s" % site_dict['database'])
+        loginf("destination: %s" % site_dict['server_url'])
+        loginf("measurement: %s" % site_dict['measurement'])
+
         site_dict['append_units_label'] = to_bool(
             site_dict.get('append_units_label'))
         site_dict['augment_record'] = to_bool(site_dict.get('augment_record'))
@@ -323,7 +326,7 @@ class Influx(weewx.restx.StdRESTbase):
         usn = site_dict.get('unit_system', None)
         if usn in weewx.units.unit_constants:
             site_dict['unit_system'] = weewx.units.unit_constants[usn]
-            loginf("desired unit system is %s" % usn)
+            loginf("desired unit system: %s" % usn)
 
         if 'inputs' in cfg_dict['StdRESTful']['Influx']:
             site_dict['inputs'] = dict(
@@ -343,13 +346,13 @@ class Influx(weewx.restx.StdRESTbase):
         if 'tags' in site_dict:
             if isinstance(site_dict['tags'], list):
                 site_dict['tags'] = ','.join(site_dict['tags'])
-            loginf("tags %s" % site_dict['tags'])
+            loginf("tags: %s" % site_dict['tags'])
 
         # we can bind to loop packets and/or archive records
         binding = site_dict.pop('binding', 'archive')
         if isinstance(binding, list):
             binding = ','.join(binding)
-        loginf('binding is %s' % binding)
+        loginf('binding: %s' % binding)
 
         data_queue = queue.Queue()
         try:
