@@ -1,5 +1,5 @@
 # installer for influx
-# Copyright 2016-2020 Matthew Wall
+# Copyright 2016-2021 Matthew Wall
 # Distributed under the terms of the GNU Public License (GPLv3)
 
 from weecfg.extension import ExtensionInstaller
@@ -10,7 +10,7 @@ def loader():
 class InfluxInstaller(ExtensionInstaller):
     def __init__(self):
         super(InfluxInstaller, self).__init__(
-            version="0.15",
+            version="0.16",
             name='influx',
             description='Upload weather data to Influx.',
             author="Matthew Wall",

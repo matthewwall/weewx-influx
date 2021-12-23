@@ -1,3 +1,6 @@
+0.16 22dec2021
+* introduce the multi-line-dotted format for hierarchic naming
+
 0.15 10may2020
 * use correct units label when overriding individual observations
 

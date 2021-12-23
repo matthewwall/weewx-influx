@@ -1,4 +1,4 @@
-# Copyright 2016-2020 Matthew Wall
+# Copyright 2016-2021 Matthew Wall
 # Distributed under the terms of the GNU Public License (GPLv3)
 
 """
@@ -32,25 +32,36 @@ names and default units and formatting.
 
 Customization: line format and database structure
 
-This uploader supports two different formats for the influx line protocol.
+This uploader supports a few formats, using either the single- or multi-line
+format in influx.  Options for this parameter include:  multi-line,
+multi-line-dotted, and single-line.  The default is single-line.
 
 [StdRESTful]
     [[Influx]]
-        line_format = multi-line # options are multi-line or single-line
+        measurement = weewx
+        line_format = multi-line-dotted
+
+Here are examples of the data sent to influx when the 'measurement' parameter
+is set to 'weewx'.
 
 The single-line format results in the following:
 
-  record[tags] name0=x,name1=y,name2=z ts
+  weewx[tags] name0=x,name1=y,name2=z ts
 
 The multi-line format results in the following:
 
   name0[tags] value=x ts
   name1[tags] value=y ts
   name2[tags] value=z ts
-  ...
+
+The multi-line-dotted format results in the following:
+
+  weewx.name0[tags] value=x ts
+  weewx.name1[tags] value=x ts
+  weewx.name2[tags] value=x ts
 
 Which format should you use?  It depends on how you want the data to end up in
-influx.  For influx, think of measurement name as table, tags and column names,
+influx.  For influx, think of measurement name as table, tags as column names,
 and fields as unindexed columns.
 
 For example, consider these data points:
@@ -60,9 +71,7 @@ For example, consider these data points:
 {'H19': 528, 'VPV': 63.71, 'I': 600, 'H21': 115, 'H20': 19, 'H23': 93, 'H22': 23, 'V': 13.43, 'CS': 5, 'PPV': 9}
 {'H19': 528, 'VPV': 63.74, 'I': 600, 'H21': 115, 'H20': 19, 'H23': 93, 'H22': 23, 'V': 13.43, 'CS': 5, 'PPV': 9}
 
-A single-line configuration:
-
-Results in this:
+A single-line configuration results in this:
 
 > select * from value
 name: value
@@ -73,9 +82,7 @@ time                CS H19 H20 H21 H22 H23 I   PPV V     VPV   binding
 1536086339000000000 5  528 19  115 23  93  0.6 9   13.43 63.71 loop   
 1536086341000000000 5  528 19  115 23  93  0.6 9   13.43 63.74 loop   
 
-A multi-line configuration:
-
-Results in this:
+A multi-line configuration results in this:
 
 > select * from VPV
 name: value
@@ -151,7 +158,7 @@ import weewx.restx
 import weewx.units
 from weeutil.weeutil import to_bool, accumulateLeaves
 
-VERSION = "0.15"
+VERSION = "0.16"
 
 REQUIRED_WEEWX = "3.5.0"
 if StrictVersion(weewx.__version__) < StrictVersion(REQUIRED_WEEWX):
@@ -264,7 +271,7 @@ class Influx(weewx.restx.StdRESTbase):
         Default is True
 
         line_format: which line protocol format to use.  Possible values are
-        single-line or multi-line.
+        single-line, multi-line, or multi-line-dotted.
         Default is single-line
 
         append_units_label: should units label be appended to name
@@ -545,7 +552,12 @@ class InfluxThread(weewx.restx.RESTThread):
                     from_t = (v, from_unit, from_group)
                     v = weewx.units.convert(from_t, to_units)[0]
                 s = fmt % v
-                if self.line_format == 'multi-line':
+                if self.line_format == 'multi-line-dotted':
+                    # use multiple lines with a dotted-name identifier
+                    n = "%s.%s" % (self.measurement, name)
+                    data.append('%s%s value=%s %d' %
+                                (name, tags, s, record['dateTime']*1000000000))
+                elif self.line_format == 'multi-line':
                     # use multiple lines
                     data.append('%s%s value=%s %d' %
                                 (name, tags, s, record['dateTime']*1000000000))
@@ -554,7 +566,7 @@ class InfluxThread(weewx.restx.RESTThread):
                     data.append('%s=%s' % (name, s))
             except (TypeError, ValueError):
                 pass
-        if self.line_format == 'multi-line':
+        if self.line_format == 'multi-line' or self.line_format == 'multi-line-dotted':
             str_data = '\n'.join(data)
         else:
             str_data = '%s%s %s %d' % (self.measurement, tags, ','.join(data), record['dateTime']*1000000000)
