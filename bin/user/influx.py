@@ -560,7 +560,7 @@ class InfluxThread(weewx.restx.RESTThread):
                     # use multiple lines with a dotted-name identifier
                     n = "%s.%s" % (self.measurement, name)
                     data.append('%s%s value=%s %d' %
-                                (name, tags, s, record['dateTime']*1000000000))
+                                (n, tags, s, record['dateTime']*1000000000))
                 elif self.line_format == 'multi-line':
                     # use multiple lines
                     data.append('%s%s value=%s %d' %
