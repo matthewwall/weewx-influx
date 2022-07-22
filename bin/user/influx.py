@@ -158,7 +158,7 @@ import weewx.restx
 import weewx.units
 from weeutil.weeutil import to_bool, accumulateLeaves
 
-VERSION = "0.16"
+VERSION = "0.17"
 
 REQUIRED_WEEWX = "3.5.0"
 if StrictVersion(weewx.__version__) < StrictVersion(REQUIRED_WEEWX):
@@ -503,10 +503,12 @@ class InfluxThread(weewx.restx.RESTThread):
         # FIXME: provide full set of ssl options instead of this hack
         if self.server_url.startswith('https'):
             import ssl
-            return urlopen(request, data=payload.encode('utf-8'), timeout=self.timeout,
+            encoded = None
+            if payload:
+                encoded = payload.encode('utf-8')
+            return urlopen(request, data=encoded, timeout=self.timeout,
                            context=ssl._create_unverified_context())
-        else:
-            return super(InfluxThread, self).post_request(request, payload)
+        return super(InfluxThread, self).post_request(request, payload)
 
     def get_post_body(self, record):
         """Override my superclass and get the body of the POST"""
@@ -568,13 +570,14 @@ class InfluxThread(weewx.restx.RESTThread):
                 else:
                     # use a single line
                     data.append('%s=%s' % (name, s))
-            except (TypeError, ValueError):
-                pass
+            except (TypeError, ValueError) as e:
+                # FIXME: influx1 does not support NULL.  for influx2, ensure
+                # that any None values are retained as NULL.
+                logdbg("skipped value '%s': %s" % (record.get(k), e))
         if self.line_format == 'multi-line' or self.line_format == 'multi-line-dotted':
             str_data = '\n'.join(data)
         else:
             str_data = '%s%s %s %d' % (self.measurement, tags, ','.join(data), record['dateTime']*1000000000)
-
         return str_data, 'application/x-www-form-urlencoded'
 
 # Use this hook to test the uploader:

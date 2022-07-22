@@ -1,3 +1,8 @@
+0.17 22jul2022
+* better reporting for None values
+* explicitly no support for None in influx1 (but ok for influx2)
+* handle None case when using ssl transport
+
 0.16 22dec2021
 * introduce the multi-line-dotted format for hierarchic naming
 * removed stray colon from old-style logging
