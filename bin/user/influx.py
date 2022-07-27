@@ -1,4 +1,4 @@
-# Copyright 2016-2021 Matthew Wall
+# Copyright 2016-2020 Matthew Wall
 # Distributed under the terms of the GNU Public License (GPLv3)
 
 """
@@ -10,9 +10,9 @@ This is a weewx extension that uploads data to an Influx server.
 
 Database Configuration and Access
 
-When it starts up, this extension will attempt to create the influx database.
+When it starts up, this extension will attempt to create the influx bucket.
 
-To disable database creation, set create_database=False.
+To disable bucket creation, set create_bucket=False.
 
 If credentials for a database administrator were provided, it will use those
 credentials.  Otherwise, it will use the username/password credentials.
@@ -22,46 +22,37 @@ All other access to the influx database uses the username/password credentials
 
 Minimal Configuration
 
-A database name is required.  All weewx variables will be uploaded using weewx
-names and default units and formatting.
+Org, bucket and token are required.  All weewx variables will be uploaded using
+weewx names and default units and formatting.
 
 [StdRESTful]
     [[Influx]]
-        host = influxservername.example.com
-        database = DATABASE
+        server_url = http://localhost:8086
+        org = ORG_NAME
+        bucket = BUCKET
+        token = TOKEN
 
 Customization: line format and database structure
 
-This uploader supports a few formats, using either the single- or multi-line
-format in influx.  Options for this parameter include:  multi-line,
-multi-line-dotted, and single-line.  The default is single-line.
+This uploader supports two different formats for the influx line protocol.
 
 [StdRESTful]
     [[Influx]]
-        measurement = weewx
-        line_format = multi-line-dotted
-
-Here are examples of the data sent to influx when the 'measurement' parameter
-is set to 'weewx'.
+        line_format = multi-line # options are multi-line or single-line
 
 The single-line format results in the following:
 
-  weewx[tags] name0=x,name1=y,name2=z ts
+  record[tags] name0=x,name1=y,name2=z ts
 
 The multi-line format results in the following:
 
   name0[tags] value=x ts
   name1[tags] value=y ts
   name2[tags] value=z ts
-
-The multi-line-dotted format results in the following:
-
-  weewx.name0[tags] value=x ts
-  weewx.name1[tags] value=x ts
-  weewx.name2[tags] value=x ts
+  ...
 
 Which format should you use?  It depends on how you want the data to end up in
-influx.  For influx, think of measurement name as table, tags as column names,
+influx.  For influx, think of measurement name as table, tags and column names,
 and fields as unindexed columns.
 
 For example, consider these data points:
@@ -71,7 +62,9 @@ For example, consider these data points:
 {'H19': 528, 'VPV': 63.71, 'I': 600, 'H21': 115, 'H20': 19, 'H23': 93, 'H22': 23, 'V': 13.43, 'CS': 5, 'PPV': 9}
 {'H19': 528, 'VPV': 63.74, 'I': 600, 'H21': 115, 'H20': 19, 'H23': 93, 'H22': 23, 'V': 13.43, 'CS': 5, 'PPV': 9}
 
-A single-line configuration results in this:
+A single-line configuration:
+
+Results in this:
 
 > select * from value
 name: value
@@ -82,7 +75,9 @@ time                CS H19 H20 H21 H22 H23 I   PPV V     VPV   binding
 1536086339000000000 5  528 19  115 23  93  0.6 9   13.43 63.71 loop   
 1536086341000000000 5  528 19  115 23  93  0.6 9   13.43 63.74 loop   
 
-A multi-line configuration results in this:
+A multi-line configuration:
+
+Results in this:
 
 > select * from VPV
 name: value
@@ -101,9 +96,10 @@ the input, independent of the local weewx units.
 
 [StdRESTful]
     [[Influx]]
-        database = DATABASE
-        host = localhost
-        port = 8086
+        server_url = http://localhost:8086
+        org = ORG_NAME
+        bucket = BUCKET
+        token = TOKEN
         tags = station=A
         [[[inputs]]]
             [[[[barometer]]]]
@@ -158,7 +154,7 @@ import weewx.restx
 import weewx.units
 from weeutil.weeutil import to_bool, accumulateLeaves
 
-VERSION = "0.17"
+VERSION = "0.20"
 
 REQUIRED_WEEWX = "3.5.0"
 if StrictVersion(weewx.__version__) < StrictVersion(REQUIRED_WEEWX):
@@ -185,7 +181,7 @@ except ImportError:
     import syslog
 
     def logmsg(level, msg):
-        syslog.syslog(level, 'restx: Influx: %s' % msg)
+        syslog.syslog(level, 'restx: Influx: %s:' % msg)
 
     def logdbg(msg):
         logmsg(syslog.LOG_DEBUG, msg)
@@ -247,18 +243,16 @@ class Influx(weewx.restx.StdRESTbase):
 
         Required parameters:
 
-        database: name of the database at the server
+        org: InfluxDB 2.x Organization Name
+
+        bucket: bucket to write data to
+
+        token: InfluxDB 2.x Authorization Token
 
         Optional parameters:
 
-        host: server hostname
-        Default is localhost
-
-        port: server port
-        Default is 8086
-
-        server_url: full restful endpoint of the server
-        Default is None
+        server_url: InfluxDB Server URL
+        Default is http://localhost:8086
 
         measurement: name of the measurement
         Default is 'record'
@@ -267,11 +261,12 @@ class Influx(weewx.restx.StdRESTbase):
         measurement.  tags cannot contain spaces.
         Default is None
 
-        create_database: should the upload attempt to create database first
-        Default is True
+        loop_bucket: bucket to write loop records to, if different than
+        archive records.
+        Default is the 'bucket' parameter
 
         line_format: which line protocol format to use.  Possible values are
-        single-line, multi-line, or multi-line-dotted.
+        single-line or multi-line.
         Default is single-line
 
         append_units_label: should units label be appended to name
@@ -289,36 +284,31 @@ class Influx(weewx.restx.StdRESTbase):
 
         binding: options include "loop", "archive", or "loop,archive"
         Default is archive
+
+        add_binding_tag: Whether or not to include the binding (archive
+        or loop) as a tag for each data point.
+        Default is True
         """
         super(Influx, self).__init__(engine, cfg_dict)
         loginf("service version is %s" % VERSION)
-        site_dict = weewx.restx.get_site_dict(cfg_dict, 'Influx', 'database')
+        site_dict = weewx.restx.get_site_dict(cfg_dict, 'Influx', 'org', 'bucket', 'token')
         if site_dict is None:
             return
 
+        loginf("Org is %s" % site_dict['org'])
+        loginf("Bucket is %s" % site_dict['bucket'])
+        if site_dict.get('loop_bucket') is not None:
+            loginf("Loop Bucket is %s" % site_dict['loop_bucket'])
 
-        port = int(site_dict.get('port', 8086))
-        host = site_dict.get('host', 'localhost')
-        if site_dict.get('server_url', None) is None:
-            site_dict['server_url'] = 'http://%s:%s' % (host, port)
-        site_dict.pop('host', None)
-        site_dict.pop('port', None)
-        site_dict.setdefault('username', None)
-        site_dict.setdefault('password', '')
-        site_dict.setdefault('dbadmin_username', None)
-        site_dict.setdefault('dbadmin_password', '')
-        site_dict.setdefault('create_database', True)
+        site_dict.setdefault('server_url', 'http://localhost:8086')
+        site_dict.setdefault('loop_bucket', site_dict['bucket'])
         site_dict.setdefault('tags', None)
         site_dict.setdefault('line_format', 'single-line')
         site_dict.setdefault('obs_to_upload', 'most')
         site_dict.setdefault('append_units_label', True)
         site_dict.setdefault('augment_record', True)
         site_dict.setdefault('measurement', 'record')
-
-        loginf("database: %s" % site_dict['database'])
-        loginf("destination: %s" % site_dict['server_url'])
-        loginf("line_format: %s" % site_dict['line_format'])
-        loginf("measurement: %s" % site_dict['measurement'])
+        site_dict.setdefault('add_binding_tag', True)
 
         site_dict['append_units_label'] = to_bool(
             site_dict.get('append_units_label'))
@@ -327,7 +317,7 @@ class Influx(weewx.restx.StdRESTbase):
         usn = site_dict.get('unit_system', None)
         if usn in weewx.units.unit_constants:
             site_dict['unit_system'] = weewx.units.unit_constants[usn]
-            loginf("desired unit system: %s" % usn)
+            loginf("desired unit system is %s" % usn)
 
         if 'inputs' in cfg_dict['StdRESTful']['Influx']:
             site_dict['inputs'] = dict(
@@ -347,13 +337,13 @@ class Influx(weewx.restx.StdRESTbase):
         if 'tags' in site_dict:
             if isinstance(site_dict['tags'], list):
                 site_dict['tags'] = ','.join(site_dict['tags'])
-            loginf("tags: %s" % site_dict['tags'])
+            loginf("tags %s" % site_dict['tags'])
 
         # we can bind to loop packets and/or archive records
         binding = site_dict.pop('binding', 'archive')
         if isinstance(binding, list):
             binding = ','.join(binding)
-        loginf('binding: %s' % binding)
+        loginf('binding is %s' % binding)
 
         data_queue = queue.Queue()
         try:
@@ -386,16 +376,14 @@ class Influx(weewx.restx.StdRESTbase):
 
 class InfluxThread(weewx.restx.RESTThread):
 
-    _DEFAULT_SERVER_URL = 'http://localhost:8086'
-
-    def __init__(self, queue, database,
-                 username=None, password=None,
-                 dbadmin_username=None, dbadmin_password=None,
-                 line_format='single-line', create_database=True,
+    def __init__(self, queue, server_url, org, bucket, token,
+                 loop_bucket=None,
+                 line_format='single-line',
                  measurement='record', tags=None,
                  unit_system=None, augment_record=True,
                  inputs=dict(), obs_to_upload='most', append_units_label=True,
-                 server_url=_DEFAULT_SERVER_URL, skip_upload=False,
+                 add_binding_tag=True,
+                 skip_upload=False,
                  manager_dict=None,
                  post_interval=None, max_backlog=MAX_SIZE, stale=None,
                  log_success=True, log_failure=True,
@@ -411,9 +399,10 @@ class InfluxThread(weewx.restx.RESTThread):
                                            max_tries=max_tries,
                                            timeout=timeout,
                                            retry_wait=retry_wait)
-        self.database = database
-        self.username = username
-        self.password = password
+        self.org = org
+        self.bucket = bucket
+        self.token = token
+        self.loop_bucket = loop_bucket
         self.measurement = measurement
         self.tags = tags
         self.obs_to_upload = obs_to_upload
@@ -425,35 +414,7 @@ class InfluxThread(weewx.restx.RESTThread):
         self.augment_record = augment_record
         self.templates = dict()
         self.line_format = line_format
-
-        if create_database:
-            uname = None
-            pword = None
-            if dbadmin_username:
-                uname = dbadmin_username
-                pword = dbadmin_password
-            elif username:
-                uname = username
-                pword = password
-            self.create_database(uname, pword)
-
-    def create_database(self, username, password):
-        # ensure that the database exists
-        qstr = urlencode({'q': 'CREATE DATABASE %s' % self.database})
-        url = '%s/query?%s' % (self.server_url, qstr)
-        req = Request(url)
-        req.add_header("User-Agent", "weewx/%s" % weewx.__version__)
-        if username and password:
-            # Create a base64 byte string with the authorization info
-            base64bytes = base64.b64encode(('%s:%s' % (self.username, self.password)).encode())
-            # Add the authentication header to the request:
-            req.add_header("Authorization", b"Basic %s" % base64bytes)
-        try:
-            # The use of a GET to create a database has been deprecated.
-            # Include a dummy payload to force a POST.
-            self.post_request(req, 'None')
-        except (socket.error, socket.timeout, URLError, http_client.BadStatusLine, http_client.IncompleteRead) as e:
-            logerr("create database failed: %s" % e)
+        self.add_binding_tag = to_bool(add_binding_tag)
 
     def get_record(self, record, dbm):
         # We allow the superclass to add stuff to the record only if the user
@@ -464,23 +425,21 @@ class InfluxThread(weewx.restx.RESTThread):
             record = weewx.units.to_std_system(record, self.unit_system)
         return record
 
-    def format_url(self, _):
-        return '%s/write?db=%s' % (self.server_url, self.database)
+    def format_url(self, record):
+        bucket = self.loop_bucket if record.get('binding', None) == "loop" else self.bucket
+        return '%s/api/v2/write?%s' % (self.server_url, urlencode({'org': self.org, 'bucket': bucket}))
 
     def get_request(self, url):
-        """Override and add username and password"""
+        """Override and add Authorization Token"""
 
         # Get the basic Request from my superclass
         request = super(InfluxThread, self).get_request(url)
+        request.add_header("Authorization", "Token %s" % self.token)
 
-        if self.username and self.password:
-            # Create a base64 byte string with the authorization info
-            base64string = base64.b64encode(('%s:%s' % (self.username, self.password)).encode())
-            # Add the authentication header to the request:
-            request.add_header("Authorization", b"Basic %s" % base64string)
         return request
 
     def check_response(self, response):
+        # TODO: Update for InfluxDB v2
         if response.code == 204:
             return
         payload = response.read().decode()
@@ -492,23 +451,27 @@ class InfluxThread(weewx.restx.RESTThread):
 
     def handle_exception(self, e, count):
         if isinstance(e, HTTPError):
-            payload = e.read().decode()
+            payload = e.read.decode()
             logdbg("exception: %s payload: %s" % (e, payload))
-            if payload and payload.find("error") >= 0:
-                if payload.find("database not found") >= 0:
-                    raise weewx.restx.AbortedPost(payload)
+
+            # Influx DB v2 returns 401 for an invalid token and 403 for insufficient
+            # permission, in either case, a simply retry is unlikey to succeed.
+            if e.code == 401 or e.code == 403:
+                raise weewx.restx.BadLogin(payload)
+
+            # A 404 is returned if the Org or Bucket doesn't exist
+            if e.code == 404:
+                raise weewx.restx.AbortedPost(payload)
         super(InfluxThread, self).handle_exception(e, count)
 
     def post_request(self, request, payload=None):
         # FIXME: provide full set of ssl options instead of this hack
         if self.server_url.startswith('https'):
             import ssl
-            encoded = None
-            if payload:
-                encoded = payload.encode('utf-8')
-            return urlopen(request, data=encoded, timeout=self.timeout,
+            return urlopen(request, data=payload, timeout=self.timeout,
                            context=ssl._create_unverified_context())
-        return super(InfluxThread, self).post_request(request, payload)
+        else:
+            return super(InfluxThread, self).post_request(request, payload)
 
     def get_post_body(self, record):
         """Override my superclass and get the body of the POST"""
@@ -516,10 +479,13 @@ class InfluxThread(weewx.restx.RESTThread):
         # create the list of tags
         tags = ''
         binding = record.pop('binding', None)
-        if binding is not None:
+        loginf("Add Bindding Tag = %s" % self.add_binding_tag)
+        if binding is not None and self.add_binding_tag:
+            loginf("Adding Binding Tag")
             tags = ',binding=%s' % binding
         if self.tags:
             tags = '%s,%s' % (tags, self.tags)
+        loginf("tags = %s" % tags)
 
         # if uploading everything, we must check every time the list of
         # variables that should be uploaded since variables may come and
@@ -558,27 +524,21 @@ class InfluxThread(weewx.restx.RESTThread):
                     from_t = (v, from_unit, from_group)
                     v = weewx.units.convert(from_t, to_units)[0]
                 s = fmt % v
-                if self.line_format == 'multi-line-dotted':
-                    # use multiple lines with a dotted-name identifier
-                    n = "%s.%s" % (self.measurement, name)
-                    data.append('%s%s value=%s %d' %
-                                (n, tags, s, record['dateTime']*1000000000))
-                elif self.line_format == 'multi-line':
+                if self.line_format == 'multi-line':
                     # use multiple lines
                     data.append('%s%s value=%s %d' %
                                 (name, tags, s, record['dateTime']*1000000000))
                 else:
                     # use a single line
                     data.append('%s=%s' % (name, s))
-            except (TypeError, ValueError) as e:
-                # FIXME: influx1 does not support NULL.  for influx2, ensure
-                # that any None values are retained as NULL.
-                logdbg("skipped value '%s': %s" % (record.get(k), e))
-        if self.line_format == 'multi-line' or self.line_format == 'multi-line-dotted':
+            except (TypeError, ValueError):
+                pass
+        if self.line_format == 'multi-line':
             str_data = '\n'.join(data)
         else:
             str_data = '%s%s %s %d' % (self.measurement, tags, ','.join(data), record['dateTime']*1000000000)
-        return str_data, 'application/x-www-form-urlencoded'
+
+        return str_data, 'text/plain'
 
 # Use this hook to test the uploader:
 #   PYTHONPATH=bin python bin/user/influx.py
@@ -586,38 +546,32 @@ class InfluxThread(weewx.restx.RESTThread):
 if __name__ == "__main__":
     import optparse
     import time
+    import os
 
     weewx.debug = 2
 
     usage = """Usage: python -m influx --help
        python -m influx --version
        python -m influx [--server-url=SERVER-URL] 
-                        [--user=USER] [--password=PASSWORD]
-                        [--admin-user=ADMIN-USER] [--admin-password=ADMIN-PASSWORD]
-                        [--database=DBNAME] [--measurement=MEASUREMENT]
+                        [--org=ORG] [--bucket=BUCKET] [--token=TOKEN]
+                        [--measurement=MEASUREMENT]
                         [--tags=TAGS]"""
 
     parser = optparse.OptionParser(usage=usage)
     parser.add_option('--version', action='store_true',
                       help='Display weewx-influx version')
-    parser.add_option('--server-url', default='http://localhost:8086',
-                      help="URL for the InfluxDB server. Default is 'http://localhost:8086'",
+    parser.add_option('--server-url', default=os.environ['INFLUX_HOST'],
+                      help="URL for the InfluxDB server. Default is $INFLUX_HOST",
                       metavar="SERVER-URL")
-    parser.add_option('--user', default='weewx',
-                      help="User name to be used for data posts. Default is 'weewx'",
-                      metavar="USER")
-    parser.add_option('--password', default='weewx',
-                      help="Password for USER. Default is 'weewx'",
-                      metavar="PASSWORD")
-    parser.add_option('--admin-user',
-                      help="Admin user to be used when creating the database.",
-                      metavar="ADMIN-USER")
-    parser.add_option('--admin-password',
-                      help="Password for ADMIN-USER.",
-                      metavar="ADMIN-PASSWORD")
-    parser.add_option('--database', default='tester',
-                      help="InfluxDB database name. Default is 'tester'",
-                      metavar="DBNAME")
+    parser.add_option('--org', default=os.environ['INFLUX_ORG'],
+                      help="InfluxDB Organization. Default is $INFLUX_ORG",
+                      metavar="ORG_NAME")
+    parser.add_option('--token', default=os.environ['INFLUX_TOKEN'],
+                      help="InluxDfB Authorization Token. Default is $INFLUX_TOKEN",
+                      metavar="TOKEN")
+    parser.add_option('--bucket', default="WeeWXTest",
+                      help="InluxDfB Bucket, default is 'WeeWXTest'",
+                      metavar="BUCKET")
     parser.add_option('--measurement', default='record',
                       help="InfluxDB measurement name. Default is 'record'",
                       metavar="MEASUREMENT")
@@ -635,9 +589,9 @@ if __name__ == "__main__":
     queue = queue.Queue()
     t = InfluxThread(queue,
                      manager_dict=None,
-                     database=options.database,
-                     username=options.user,
-                     password=options.password,
+                     org=options.org,
+                     bucket=options.bucket,
+                     token=options.token,
                      measurement=options.measurement,
                      tags=options.tags,
                      server_url=options.server_url)
