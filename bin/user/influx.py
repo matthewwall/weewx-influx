@@ -22,13 +22,14 @@ All other access to the influx database uses the username/password credentials
 
 Minimal Configuration
 
-A database name is required.  All weewx variables will be uploaded using weewx
-names and default units and formatting.
+A database (v1) or bucket (v2) name is required.  All weewx variables will be
+uploaded using weewx names and default units and formatting.
 
 [StdRESTful]
     [[Influx]]
+        version = 2
         host = influxservername.example.com
-        database = DATABASE
+        bucket = BUCKET
 
 Customization: line format and database structure
 
@@ -158,7 +159,7 @@ import weewx.restx
 import weewx.units
 from weeutil.weeutil import to_bool, accumulateLeaves
 
-VERSION = "0.17"
+VERSION = "0.18"
 
 REQUIRED_WEEWX = "3.5.0"
 if StrictVersion(weewx.__version__) < StrictVersion(REQUIRED_WEEWX):
@@ -271,7 +272,7 @@ class Influx(weewx.restx.StdRESTbase):
         Default is True
 
         line_format: which line protocol format to use.  Possible values are
-        single-line, multi-line, or multi-line-dotted.
+        single-line, multi-line, multi-line-dotted or lineprotocol.
         Default is single-line
 
         append_units_label: should units label be appended to name
@@ -294,7 +295,9 @@ class Influx(weewx.restx.StdRESTbase):
         loginf("service version is %s" % VERSION)
         site_dict = weewx.restx.get_site_dict(cfg_dict, 'Influx', 'database')
         if site_dict is None:
-            return
+            site_dict = weewx.restx.get_site_dict(cfg_dict, 'Influx', 'bucket')
+            if site_dict is None:
+                return
 
 
         port = int(site_dict.get('port', 8086))
@@ -303,10 +306,14 @@ class Influx(weewx.restx.StdRESTbase):
             site_dict['server_url'] = 'http://%s:%s' % (host, port)
         site_dict.pop('host', None)
         site_dict.pop('port', None)
+        site_dict.setdefault('version', '1')
         site_dict.setdefault('username', None)
         site_dict.setdefault('password', '')
+        site_dict.setdefault('token', None)
+        site_dict.setdefault('org', '')
         site_dict.setdefault('dbadmin_username', None)
         site_dict.setdefault('dbadmin_password', '')
+        site_dict.setdefault('org_ID', None)
         site_dict.setdefault('create_database', True)
         site_dict.setdefault('tags', None)
         site_dict.setdefault('line_format', 'single-line')
@@ -315,7 +322,10 @@ class Influx(weewx.restx.StdRESTbase):
         site_dict.setdefault('augment_record', True)
         site_dict.setdefault('measurement', 'record')
 
-        loginf("database: %s" % site_dict['database'])
+        if site_dict['version'] == '1':
+            loginf("database: %s" % site_dict['database'])
+        else:
+            loginf("bucket: %s" % site_dict['bucket'])
         loginf("destination: %s" % site_dict['server_url'])
         loginf("line_format: %s" % site_dict['line_format'])
         loginf("measurement: %s" % site_dict['measurement'])
@@ -388,9 +398,9 @@ class InfluxThread(weewx.restx.RESTThread):
 
     _DEFAULT_SERVER_URL = 'http://localhost:8086'
 
-    def __init__(self, queue, database,
-                 username=None, password=None,
-                 dbadmin_username=None, dbadmin_password=None,
+    def __init__(self, queue, database=None, bucket=None, version='1',
+                 username=None, password=None, token=None, org=None,
+                 dbadmin_username=None, dbadmin_password=None, org_ID=None,
                  line_format='single-line', create_database=True,
                  measurement='record', tags=None,
                  unit_system=None, augment_record=True,
@@ -412,8 +422,13 @@ class InfluxThread(weewx.restx.RESTThread):
                                            timeout=timeout,
                                            retry_wait=retry_wait)
         self.database = database
+        self.bucket = bucket
+        self.version = version
         self.username = username
         self.password = password
+        self.token = token
+        self.org = org
+        self.org_ID = org_ID
         self.measurement = measurement
         self.tags = tags
         self.obs_to_upload = obs_to_upload
@@ -435,19 +450,30 @@ class InfluxThread(weewx.restx.RESTThread):
             elif username:
                 uname = username
                 pword = password
+            elif org_ID and token:
+                uname = org_ID
+                pword = token
             self.create_database(uname, pword)
 
     def create_database(self, username, password):
         # ensure that the database exists
-        qstr = urlencode({'q': 'CREATE DATABASE %s' % self.database})
-        url = '%s/query?%s' % (self.server_url, qstr)
-        req = Request(url)
+        if self.version == '1':
+            qstr = urlencode({'q': 'CREATE DATABASE %s' % self.database})
+            url = '%s/query?%s' % (self.server_url, qstr)
+            req = Request(url)
+        else:
+            url = '%s/api/buckets' % (self.server_url)
+            data = urlencode({"orgID": username, "name": self.bucket}).encode()
+            req = Request(url, data=data)
         req.add_header("User-Agent", "weewx/%s" % weewx.__version__)
         if username and password:
-            # Create a base64 byte string with the authorization info
-            base64bytes = base64.b64encode(('%s:%s' % (self.username, self.password)).encode())
-            # Add the authentication header to the request:
-            req.add_header("Authorization", b"Basic %s" % base64bytes)
+            if self.version == '1':
+                # Create a base64 byte string with the authorization info
+                base64bytes = base64.b64encode(('%s:%s' % (self.username, self.password)).encode())
+                # Add the authentication header to the request:
+                req.add_header("Authorization", b"Basic %s" % base64bytes)
+            else:
+                req.add_header("Authorization", "Token %s" % password)
         try:
             # The use of a GET to create a database has been deprecated.
             # Include a dummy payload to force a POST.
@@ -465,7 +491,10 @@ class InfluxThread(weewx.restx.RESTThread):
         return record
 
     def format_url(self, _):
-        return '%s/write?db=%s' % (self.server_url, self.database)
+        if self.version == '1':
+            return '%s/write?db=%s' % (self.server_url, self.database)
+        else:
+            return '%s/api/v2/write?org=%s&bucket=%s&precision=ns' % (self.server_url, self.org, self.bucket)
 
     def get_request(self, url):
         """Override and add username and password"""
@@ -478,6 +507,8 @@ class InfluxThread(weewx.restx.RESTThread):
             base64string = base64.b64encode(('%s:%s' % (self.username, self.password)).encode())
             # Add the authentication header to the request:
             request.add_header("Authorization", b"Basic %s" % base64string)
+        elif self.token:
+            request.add_header("Authorization", "Token %s" % self.token)
         return request
 
     def check_response(self, response):
